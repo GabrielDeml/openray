@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: xcodebuild -version && swift --version
+
+      - name: Test core package
+        run: swift test --package-path Packages/OpenRayCore
+
+      - name: Build app
+        run: >
+          xcodebuild
+          -project OpenRay.xcodeproj
+          -scheme OpenRay
+          -configuration Debug
+          -destination 'platform=macOS'
+          build
+          CODE_SIGNING_ALLOWED=NO
