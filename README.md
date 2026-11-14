@@ -3,7 +3,8 @@
 An open-source launcher for macOS: summon it with a hotkey, type, and act.
 
 OpenRay is at the very start. Right now it builds a menu-bar app and nothing
-more. See [ROADMAP.md](ROADMAP.md) for what is planned and in what order.
+more. See [ROADMAP.md](ROADMAP.md) for what is planned and in what order, and
+[docs/DESIGN.md](docs/DESIGN.md) for how it will be built.
 
 ## Requirements
 
