@@ -30,13 +30,26 @@ struct IconView: View {
     }
 }
 
-/// File icons by path. Looking one up costs a round trip to the icon service, and a row's body
-/// runs every time it scrolls into view.
-private let fileIcons = NSCache<NSString, NSImage>()
+/// File icons by path and modification date. Looking one up costs a round trip to the icon
+/// service, and a row's body runs every time it scrolls into view.
+private let fileIcons: NSCache<NSString, NSImage> = {
+    let cache = NSCache<NSString, NSImage>()
+    // Several times the apps of a well-filled Mac, so the limit only matters once file search
+    // puts arbitrary files in the list.
+    cache.countLimit = 1_000
+    return cache
+}()
 
 private func fileIcon(forPath path: String) -> NSImage {
-    if let cached = fileIcons.object(forKey: path as NSString) { return cached }
+    // The date is part of the key so that an app that was updated shows its new icon: an update
+    // replaces the bundle, which changes the date. Reading it is one attribute lookup.
+    let attributes = try? FileManager.default.attributesOfItem(atPath: path)
+    let modified = attributes?[.modificationDate] as? Date
+    let modifiedSeconds = modified?.timeIntervalSinceReferenceDate ?? 0
+    let key = "\(path)\n\(modifiedSeconds)" as NSString
+
+    if let cached = fileIcons.object(forKey: key) { return cached }
     let icon = NSWorkspace.shared.icon(forFile: path)
-    fileIcons.setObject(icon, forKey: path as NSString)
+    fileIcons.setObject(icon, forKey: key)
     return icon
 }

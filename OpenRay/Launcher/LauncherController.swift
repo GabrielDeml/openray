@@ -15,9 +15,9 @@ final class LauncherController: NSObject, NSWindowDelegate, LauncherShell {
     private let focusRestorer: FocusRestorer
     private var displays = NSScreen.screens.map { $0.geometry }
 
-    init(source: any SearchSource, focusRestorer: FocusRestorer) {
+    init(search: SearchSession, usage: any UsageStore, focusRestorer: FocusRestorer) {
         self.focusRestorer = focusRestorer
-        model = LauncherModel(source: source)
+        model = LauncherModel(search: search, usage: usage)
         keyMonitor = LauncherKeyMonitor(panel: panel, searchField: searchBar.field, model: model)
 
         let glass = NSGlassEffectView()
@@ -145,5 +145,11 @@ final class LauncherController: NSObject, NSWindowDelegate, LauncherShell {
 
     func resultsDidCommit() {
         latency.endAtNextFrame(.keystrokeToResults)
+    }
+
+    var previousApp: AppRef? {
+        guard let app = focusRestorer.previousApp else { return nil }
+        // Only what Core can hold: `NSRunningApplication` stays in the app target.
+        return AppRef(pid: app.processIdentifier, bundleID: app.bundleIdentifier)
     }
 }

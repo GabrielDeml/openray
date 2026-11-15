@@ -62,9 +62,11 @@ If features later need views inside the package, they go in a separate `OpenRayF
 | `AppDatabase` and stores | Core | SQLite through GRDB (§4.3). |
 | `Preferences` | Core | `@MainActor @Observable` view of `UserDefaults` (§4.3.4). |
 
+**Launch order.** `applicationDidFinishLaunching` installs the main menu, registers the hotkey and shows Settings if the hotkey needs attention. The launcher comes a moment later: `SearchSession` needs the usage store, and `AppDatabase.openOnDisk` works on the disk. So a task opens the database and the store through a `@concurrent` function, and back on the main actor `AppDelegate` creates the sources, `CommandRegistry`, `SearchSession` and `LauncherController`, in that order, and only then honours `-OpenRayShowPanelOnLaunch`. Opening never fails: if the database cannot be used, the function returns an `InMemoryUsageStore` (§4.2.11). A hotkey pressed before the launcher exists is ignored. `AppDelegate` also asks the app index to `rescan()` on `NSWorkspace.didWakeNotification` (§4.2.8).
+
 ### 3.3 From hotkey to action
 
-1. The user presses the hotkey. Carbon delivers the event on the main run loop to `HotKeyCenter`, whose `onPress` reaches `LauncherController.toggle()`.
+1. The user presses the hotkey. Carbon delivers the event on the main run loop to `HotKeyCenter`, whose `onPress` reaches `LauncherController.toggle()` once the launcher exists (§3.2).
 2. `LauncherController` has `FocusRestorer` record the frontmost app as `previousApp`, places the panel, applies `.willShow` (whose effects restart the root search and make the search field first responder), and makes the panel key.
 3. Each text change in the field becomes a `.queryChanged` intent. Other keys go through one local key monitor to `KeyRouter`, which returns an intent or lets the key fall through to the field editor.
 4. `LauncherModel` applies the intent to `LauncherState`. The reducer returns effects. At the root, a query change returns `.search(query:generation:)`, which `LauncherModel` passes to `SearchSession`.
@@ -299,7 +301,7 @@ Routing, in priority order:
 
 **Item shortcuts** are looked up only after every fixed chord has declined, so an item can never take over Esc, Return or ⌘K. A shortcut is triggered when the modifiers are equal and the key matches: by `characters`, compared without case, when both the shortcut and the pressed chord have ASCII characters, and by key code otherwise. If one press triggers two of the item's shortcuts, the action with the smaller `ActionID` wins, which keeps routing deterministic.
 
-`CommandRegistry` drops, and logs, any action shortcut that collides with ⌘A, ⌘C, ⌘V, ⌘X, ⌘Z, ⌘⇧Z or a chord in this table.
+`CommandRegistry` drops, and logs, any action shortcut that collides with ⌘A, ⌘C, ⌘V, ⌘X, ⌘Z, ⌘⇧Z or a chord in this table. It does so from M3 on, when the first actions with shortcuts arrive.
 
 #### 4.1.4 Navigation state
 
@@ -379,7 +381,7 @@ Rules:
 - **No wrap-around.** `.moveSelection` stops at the first and the last row. With nothing selected, a move down selects the first row and a move up the last.
 - `.resultsArrived` with a generation other than the current one is dropped. `LauncherState.generation` is the only generation counter in the app. Root results that arrive while a screen is on top update the root frame without scrolling; `.screenRowsChanged` is ignored at the root.
 - `.activateIndex(n)` selects the n-th row of the top frame and performs its primary action; a position outside the rows does nothing.
-- **Return ahead of the results.** Results arrive at least one main-actor turn after the query change that asked for them, and until then root search still holds the rows of its previous query. `.performPrimary` (with the action panel closed), `.activateIndex` and `.tabComplete` never act on those rows. While the root waits for the results of its query, the activation is remembered and performed on those results when they arrive: Return on their first row, ⌘n on their n-th, Tab on their first row's Tab target or else the fallback. The first results for the query use the activation up, also when they are empty or have no such row; rows that a slow source adds afterwards (§4.2.5) only update the list. Only the last activation is remembered. It is given up when the user does anything else first (typing, moving the selection, Esc, pushing or popping a screen, showing again), when the launcher is hidden (`.didHide`), and when an action starts; rows arriving and the late outcome of a cancelled action leave it alone. `.performAction` and opening the action panel are ignored in the same gap, because they name actions of the item that is on its way out. The app's side of this: every `.search` is answered with `.resultsArrived`, with no rows if it found nothing or failed, unless a newer search has replaced it.
+- **Return ahead of the results.** Results arrive at least one main-actor turn after the query change that asked for them, and until then root search still holds the rows of its previous query. `.performPrimary` (with the action panel closed), `.activateIndex` and `.tabComplete` never act on those rows. While the root waits for the results of its query, the activation is remembered and performed on those results when they arrive: Return on their first row, ⌘n on their n-th, Tab on their first row's Tab target or else the fallback. The first results for the query use the activation up, also when they are empty or have no such row; rows that a slow source adds afterwards (§4.2.5) only update the list. Only the last activation is remembered. It is given up when the user does anything else first (typing, moving the selection, Esc, pushing or popping a screen, showing again), when the launcher is hidden (`.didHide`), and when an action starts; rows arriving and the late outcome of a cancelled action leave it alone. `.performAction` and opening the action panel are ignored in the same gap, because they name actions of the item that is on its way out. The app's side of this: every `.search` is answered with `.resultsArrived`, with no rows if it found nothing or failed, unless a newer search has replaced it. `SearchSession` gives that guarantee (§4.2.5), and `LauncherModel` passes every answer for the current generation on.
 - **On a screen nothing waits.** `.screenRowsChanged` does not say which query its rows answer, so the reducer cannot tell the answer it would wait for from a late answer to an earlier query, or from a row the screen added meanwhile. On a screen, Return, ⌘n, Tab, item shortcuts and the action panel act on the rows shown. A list screen still answers every `.forwardQuery` with `.screenRowsChanged`, which is what moves the selection to the first row of a new query. Whether a screen should name the query it answers is open (§8, item 28).
 - **Esc ladder:** cancel the frame's in-flight action; else close the action panel; else pop the frame; else clear the query; else hide.
 - **Back** (⌘[, Delete) closes the action panel if it is open. Otherwise it pops one frame, which cancels an action running in that frame, and does nothing at the root.
@@ -389,17 +391,19 @@ Rules:
 - **Outcomes.** `.actionStarted` marks the top frame as waiting for the action that `actionSerial` now names. `.actionFinished(outcome, serial:)` is applied only if the top frame still waits for that serial, so an outcome always navigates from the frame that started its action. It is dropped after the action was cancelled, after its frame was popped, and after the launcher was shown again. `.closeLauncher` and `.showHUD` return `.hide`; `.keepOpen` only ends the wait; `.popToRoot` pops every screen; `.push` pushes; `.replaceQuery` changes the query as typing would, with a new search at the root and `.forwardQuery` on a screen.
 - **Show.** `.willShow` pops every screen, closes the action panel and stops waiting for any action. It does not return `.cancelAction`: an action still running from before keeps running (§4.1.1), but its outcome no longer navigates. The root keeps its query and, of the rows it still has, selects the first. The generation is bumped and `.search` is returned for that query, so results from before the hide are stale and the fresh ones select their first row. `.focusSearchField` follows, which selects the query text so typing replaces it. Hiding (`.didHide`) changes nothing in the state that the next show would see: it only gives up an activation that was waiting for results, so that an action cannot run after the launcher has gone.
 
-`LauncherModel` (app target) holds the state, the current `SearchResults` and the screens on the stack. Before applying an intent, it offers it to the top screen if that screen is a custom screen, the action panel is closed and no action is in flight (§4.1.5). It derives `selectedItemShortcuts` from the selected item's actions, and the rows of `.resultsArrived` from the results with `LauncherState.Row(item)`. It reaches the window through the `LauncherShell` protocol (hide, focus the field, set the field's text, open Settings), which `LauncherController` implements.
+`LauncherModel` (app target) holds the state, the current `SearchResults` and the screens on the stack. Before applying an intent, it offers it to the top screen if that screen is a custom screen, the action panel is closed and no action is in flight (§4.1.5). It derives `selectedItemShortcuts` from the selected item's actions, and the rows of `.resultsArrived` from the results with `LauncherState.Row(item)`: the rows of every section, in displayed order. It reaches the window through the `LauncherShell` protocol (hide, focus the field, set the field's text, open Settings, the previous app as an `AppRef`, and a note that results were committed, for the latency probe), which `LauncherController` implements.
 
 No effect carries the search field's text. The reducer changes it in several ways (Esc clears the query, leaving a screen restores the query below, the action panel swaps its filter in and out, `.replaceQuery`), so after every intent the model compares `searchFieldText` with its value before and writes the field only if the reducer changed it. It must not write otherwise: text an input method is still composing is in the field but not yet in the state, and writing would discard it. The write comes before the effects run, so that `.focusSearchField` selects the new text.
 
-**Running an action.** For `.perform`, `LauncherModel` finds the action, then:
+**Running an action.** For `.perform`, `LauncherModel` finds the item among the current results and the action among the item's actions; if either is missing it does nothing. Then:
 
 1. If the action has a `confirmation`, shows it in the panel (§4.1.6) and stops if the user declines.
 2. Checks `requiredPermissions` with `PermissionCenter` (§5.1). If one is missing it requests it or pushes the permission screen, as §5.1 describes, instead of running the action.
-3. If the item is in the root frame or a list screen, records the pick with `UsageStore.record(pick:query:at:)` using that frame's query.
-4. Applies `.actionStarted` and notes `actionSerial`, runs `perform` in a stored `Task`, and applies `.actionFinished(outcome, serial:)` with that serial.
-5. If `perform` throws, shows the error's `localizedDescription` in the HUD with the launcher still open, and logs it.
+3. If the item is in the root frame or a list screen, records the pick with `UsageStore.record(pick:query:at:)` using that frame's query. The write runs in a task of its own, so the action does not wait for the disk; a failed write is logged (§4.2.7).
+4. Applies `.actionStarted` and notes `actionSerial`, runs `perform` in a stored `Task`, and applies `.actionFinished(outcome, serial:)` with that serial. `.actionStarted` is applied before anything suspends, so a second Return finds the frame waiting and starts nothing. `.cancelAction` cancels the stored task.
+5. If `perform` throws, shows the error's `localizedDescription` in the HUD with the launcher still open, and logs it. The frame stops waiting (`.keepOpen`). An action that throws because Esc cancelled it has not failed, and nothing is shown or logged.
+
+M2 has steps 3 and 4 and the logging of step 5. Until the HUD exists the log line is the only trace of a failed action, so it carries the error's domain and code publicly; the description can name a file and stays private (§5.3). The confirmation view, `PermissionCenter` and the HUD arrive with M3. Until then an action that has a `confirmation` or `requiredPermissions` is not run at all, which is logged: nothing destructive may go ahead unconfirmed. No M2 action has either.
 
 #### 4.1.5 Results list and screens
 
@@ -601,7 +605,7 @@ Actions talk to the shell through `ActionContext`. Features reach other services
 // OpenRayCore
 @MainActor public protocol ActionContext: AnyObject {
     var previousApp: AppRef? { get }
-    var query: String { get }                  // the current frame's query
+    var query: String { get }                  // the query of the action's frame when the action started
     func closeLauncher()                       // before opening any window outside the panel
     func showHUD(_ text: String)
     func confirm(_ confirmation: Confirmation) async -> Bool
@@ -620,6 +624,8 @@ Actions talk to the shell through `ActionContext`. Features reach other services
     var actionContext: any ActionContext { get }
 }
 ```
+
+`LauncherActionContext` (app target) implements `ActionContext`; `LauncherModel` makes one for each action it performs. `previousApp` is the pid and bundle identifier of the app `FocusRestorer` recorded, and `closeLauncher()` hides the panel through `LauncherShell`. Hiding twice is harmless, so an action may close the launcher itself and still return `.closeLauncher`. In M2 the other members only hold their place, because no M2 action calls them: `showHUD` writes the text to the log and `confirm` answers `false` until M3 (`HUDController`, the confirmation view); `copy` does nothing and `paste` returns `.copiedOnly(.noTarget)` until M4 (`PasteService`).
 
 #### 4.2.3 Sources, features and screens
 
@@ -671,11 +677,26 @@ public protocol SearchSource: Sendable {
 }
 ```
 
-`SearchQuery.normalized` is the query without surrounding whitespace, folded for case, diacritics and width (§4.2.6). `head` is the first whitespace-separated token of the query and `tail` the rest, trimmed; quicklinks use them (§4.2.9). `ScreenRegistry` asks the feature named by `ScreenRequest.feature` for a `ScreenSpec` and keeps the spec alive while its frame is on the stack; the spec's closures capture the feature's Core view model. `BuiltInFeatures.swift` lists the `Feature` values and is the only place a new command is added.
+`SearchQuery.normalized` is the query without surrounding whitespace, composed (NFC) and folded for case, diacritics and width (§4.2.6). `head` is the first whitespace-separated token of the query and `tail` the rest, trimmed; quicklinks use them (§4.2.9). `ScreenRegistry` asks the feature named by `ScreenRequest.feature` for a `ScreenSpec` and keeps the spec alive while its frame is on the stack; the spec's closures capture the feature's Core view model. `BuiltInFeatures.swift` lists the `Feature` values and is the only place a new command is added.
 
 #### 4.2.4 Command registry
 
-`CommandRegistry` (Core, `@MainActor`) holds `[any SearchSource]` and listens to each source's `indexedItems()` stream. On every change it builds a new immutable, `Sendable` `IndexSnapshot` in a `@concurrent` function and publishes it back on the main actor. The snapshot stores each item's names pre-normalised (§4.2.6) next to the originals. While building it, the registry applies the user's overrides from `CommandStore`: aliases become `NameVariant`s and pin on an exact match, hidden items leave root search, disabled commands disappear. It also drops action shortcuts that collide with editing chords (§4.1.3).
+`CommandRegistry` (Core, `@MainActor`) holds `[any SearchSource]` and listens to each source's `indexedItems()` stream. On every change it builds a new immutable, `Sendable` `IndexSnapshot` in a `@concurrent` function and publishes it back on the main actor. The snapshot stores each item's names pre-normalised (§4.2.6) next to the originals. Names of one item that fold to the same text are stored once, with the higher weight. Of items that share an `ItemID` the snapshot keeps the first and counts the rest, because the results list tells its rows apart by ID; the registry logs the count.
+
+```swift
+// OpenRayCore
+@MainActor public final class CommandRegistry {
+    public init(sources: [any SearchSource])
+    public let sources: [any SearchSource]
+    // Internal, for SearchSession: the current snapshot, and a callback after it has changed.
+    private(set) var snapshot: IndexSnapshot
+    var onChange: (@MainActor () -> Void)?
+}
+```
+
+The registry keeps the latest items of each source and builds the snapshot from all of them in the order of `sources`, so of two sources that yield the same `ItemID` the earlier one wins. A source without indexed items has a stream that ends at once and contributes nothing. Each change cancels the build that is still running and starts a new one; a build checks for cancellation on the main actor before it publishes, so an older snapshot never replaces a newer one. The snapshot is empty until the first source has yielded. When the registry goes away it cancels its listeners, which ends the sources' streams.
+
+From M3 on the registry also applies the user's overrides from `CommandStore` while building: aliases become `NameVariant`s and pin on an exact match, hidden items leave root search, disabled commands disappear. It then also drops action shortcuts that collide with editing chords (§4.1.3); no M2 item has a shortcut.
 
 #### 4.2.5 Search session
 
@@ -690,18 +711,35 @@ public protocol SearchSource: Sendable {
 }
 ```
 
-1. `update` cancels the previous task, parses `SearchQuery`, and starts a task that captures the current `IndexSnapshot` and `await usage.snapshot()` (an in-memory value, no disk access).
-2. The task runs a task group: one child for the matcher (`@concurrent func rank(...)`, checking `Task.isCancelled` every 256 items) and one child per source's `results(for:)`.
-3. It publishes once all `.inline` children have returned or after 12 ms, whichever comes first. `.pinnedTop` items go above the ranked section, each `.slow` source gets its own section below it as it arrives (published again with the same generation), and the fallback section (§4.2.9) goes last. An `.inline` source that misses the deadline is shown in a late section and logged as misclassified.
-4. When the new query extends the previous one, the matcher filters only the previous survivors.
+1. `update` cancels the previous task, remembers the query and generation as the current request, parses `SearchQuery`, and captures the registry's current `IndexSnapshot` and sources. It starts a main-actor task that awaits `usage.snapshot()` (an in-memory value, no disk access).
+2. The task runs a task group. Its children do not run on the main actor: one for the matcher (`@concurrent func rank(...)`, checking `Task.isCancelled` every 256 items), one per source's `results(for:)`, and two timers (12 ms and 2 s). A source's error is caught in its child and logged, unless the search was cancelled: a source that honours cancellation throws at the end of every search that was replaced. The task takes the children's results one by one on the main actor.
+3. **First results.** It publishes for the first time when the matcher's rows are in and either every `.inline` source has answered or 12 ms have passed. The 12 ms are for the inline sources only. The first results always wait for the matcher, however long it takes, because they use up a Return that was pressed ahead of them (§4.1.4), and without the matcher's rows that Return would act on nothing. A `.slow` source is never waited for.
+4. **Later results.** A source that answers after the first results is published with the same generation, if it has rows. The reducer takes such results as an update of the same query, so the selection stays on its item. After 2 s the sources that still have not answered are logged (§4.2.11); their rows are still shown when they come.
+5. **Survivors.** When a ranking runs to its end, the session keeps its normalised query and survivors (§4.2.6). The next search passes them to the matcher as its candidates if its normalised query starts with the kept one, scalar by scalar, so only those entries are looked at. The survivors of an empty query are not kept, and a cancelled ranking keeps nothing. Survivors are indices into one snapshot and are forgotten when the index changes.
+6. **Index changes.** The session sets `CommandRegistry.onChange`. When the registry publishes a new snapshot, the session runs the current request again, with the same generation. That is how the first search after launch fills in once the apps have been scanned, and how an app installed while the launcher is open appears. Before the first `update` there is no request and nothing is published.
+
+**The answer guarantee.** After `update(query:generation:)`, `onResults` is called at least once with that generation, unless another `update` came first. This holds when the index is empty, when nothing matches, when a source throws or never returns, and when the usage store is slow. The only thing that takes an answer away is the next `update`. The task checks `Task.isCancelled` and calls `onResults` in one stretch of main-actor code that does not suspend, and `update` runs on the main actor too, so a search that was replaced never publishes after its successor has started.
+
+**Sections**, in this order. A section without rows is never published: `sections.isEmpty` is how the launcher knows that nothing was found.
+
+| Section | `id` | Title | Rows |
+|---|---|---|---|
+| Pinned | `pinned` | none | The `.pinnedTop` rows of every source that has answered, in source order. From M3 also the item whose alias equals the query (§4.2.9). |
+| Ranked | `results` | "Results", or "Suggestions" for an empty query | The matcher's rows and the `.ranked` rows of the inline sources that had answered by the first results, in one order: by final rank with the tie-breaks of §4.2.7. A source's row gets its rank from its own `quality` and the item's usage. Cut to 200 rows, the list size the latency budget is measured at (§4.1.5); a one-letter query matches most of the index. Once published, the section does not change for that search. |
+| One per late source | the source's `SourceID` | none | The `.ranked` rows of a `.slow` source, or of an `.inline` source that missed the first results. Such an inline source is logged as misclassified. In source order, below the ranked section. |
+| Fallback (M3) | | | §4.2.9 |
+
+A source that returned `nil` or no rows, or threw, has no section. For an empty query the ranked section holds the suggestions of §4.2.7.
+
+A search holds its `SearchSession` until it has ended. A source that neither answers nor honours cancellation therefore keeps one task alive for every search it was asked in; that is a bug in the source, and the 2 s log line names it.
 
 #### 4.2.6 Fuzzy matching
 
-**Normalisation.** Each original `Character` is folded with `String(c).folding(options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], locale: nil)`, and each resulting scalar records its source character index in a map. Folding can change length ("Größe" folds to "grosse"), so highlights are mapped back through the map.
+**Normalisation.** Each original `Character` is composed with `precomposedStringWithCanonicalMapping` (NFC) and then folded with `folding(options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], locale: nil)`, and each resulting scalar records its source character index in a map. The query is composed and folded the same way. Composing comes first because folding leaves Hangul and voiced kana in the form it finds them, and the two sides differ: a file name is listed from the disk decomposed (NFD), and an input method types composed text. Without it "ポケ" would not find an app whose file name is "ポケモン". Folding can change length ("Größe" folds to "grosse"), so highlights are mapped back through the map. A soft hyphen (U+00AD) in a name is dropped: it is invisible, nobody types one, and macOS has them in its German app names (the German name of System Settings has one after "System").
 
-**Word starts.** Character classes come from the original character: separator (whitespace and `-_./()[]:,&+`), upper, lower, digit, CJK (Han, Kana, Hangul), other. A position is a word start when it is index 0, follows a separator, is a lower→upper or letter↔digit transition, or is CJK. Every CJK character counts as a word start because those scripts do not use spaces.
+**Word starts.** Character classes come from the original character: separator (whitespace and `-_./()[]:,&+`), upper, lower, digit, CJK (Han, Kana, Hangul), other. A position is a word start when it is index 0, follows a separator, is a lower→upper or letter↔digit transition, or is CJK. Every CJK character counts as a word start because those scripts do not use spaces. A separator never starts a word itself, not even at index 0, so the initials of "(Old) App" are "oa". When one character folds to several scalars, only the first of them can be a word start.
 
-**Non-Latin names.** At index time `applyingTransform(.toLatin, reverse: false)` followed by `.stripDiacritics` adds a transliterated variant with weight 0.9 ("微信 Привет" becomes "wei xin Privet"). The query is matched against the title and every variant; the best score wins.
+**Non-Latin names.** At index time `applyingTransform(.toLatin, reverse: false)` followed by `.stripDiacritics` adds a transliterated variant ("微信 Привет" becomes "wei xin Privet"). Its weight is 0.9 times the weight of the name it was made from, so the transliteration of an alternate name with weight 0.95 has 0.855. Plain ASCII names skip the transform, and a result that folds like its original ("Größe") adds nothing. The query is matched against the title and every variant; the best score wins.
 
 **Quality tiers** (m = query length, n = name length, in scalars):
 
@@ -714,49 +752,89 @@ public protocol SearchSource: Sendable {
 | Acronym | query is a prefix of the word-start initials ("vsc" → Visual Studio Code) | 0.75 |
 | Fuzzy | subsequence, scored by the DP below | 0.7 · dp / dpMax(m) |
 
-q is multiplied by the variant weight. Fuzzy matches with q < 0.2 are dropped; the threshold is tuned against fixture tests.
+The tiers are tried in this order and the first that applies gives q. The word-prefix tier takes the earliest word start that fits. An empty query matches nothing (§4.2.7 covers the empty field).
 
-**DP.** fzf's v2 scheme, reimplemented: a Smith–Waterman-style O(n·m) DP after a linear subsequence prefilter, with names truncated to 256 scalars. Constants from fzf's `src/algo/algo.go`: match 16; gap start −3, gap extension −1; boundary bonus 8 (whitespace boundary 10, delimiter boundary 9); camel-case or digit transition 7; consecutive 4; first query character bonus ×2. `dpMax(m) = 16m + 2·10 + 10·(m−1)`. fzf is MIT-licensed; the matcher's source carries a credit line.
+q is multiplied by the variant weight. Fuzzy matches with q < 0.2 are dropped; the threshold is tuned against fixture tests. The threshold applies to the tier quality, before the variant weight: a name is either a good enough match or not, whatever it weighs.
+
+**Highlights.** The matcher reports the offsets of the matched characters in the original name. `ScoredItem.highlights` are those of the title's own match, joined into ranges, also when another name of the item matched better. An item found only through an alternate name or a transliteration has no highlights, because offsets into those names mean nothing in the title.
+
+**Survivors.** The survivors of a query (§4.2.5, step 5) are all entries with a name that contains the query as a subsequence, whether or not the match was good enough to show. That is more than the rows shown: a match below the threshold for "ab" can rise above it for "abc". An entry that is not a survivor of a query cannot match any query that extends it.
+
+**DP.** fzf's v2 scheme, reimplemented: a Smith–Waterman-style O(n·m) DP after a linear subsequence prefilter, with names truncated to 256 scalars. Constants from fzf's `src/algo/algo.go`: match 16; gap start −3, gap extension −1; boundary bonus 8 (whitespace boundary 10, delimiter boundary 9); camel-case or digit transition 7; consecutive 4; first query character bonus ×2. With the word starts above, index 0 and a start after whitespace earn 10, a start after a delimiter 9, a CJK character that follows neither 8. Only word starts earn a bonus. Scores never drop below 0, and the matched positions are read back from the table. `dpMax(m) = 16m + 2·10 + 10·(m−1)`, the score of the query as a prefix of the name. fzf is MIT-licensed; the matcher's source carries a credit line.
 
 #### 4.2.7 Frecency and per-query learning
 
-- **Item frecency.** A pick at time t updates `s ← s·2^(−(t−t₀)/H) + 1` and `t₀ ← t`, with half-life H = 7 days. At query time `f = s·2^(−(now−t₀)/H)`.
-- **Query affinity.** A pick also upserts `(normalized query, item)` with the same decay. At query time, for query q, `a = Σ decayed(score) · m/|Q|` over stored queries Q with `Q.hasPrefix(q)`. A pick of Safari after typing "saf" boosts Safari when the user types "s". Stored queries are capped at 32 scalars.
-- **Final rank:** `r = q + 0.15·min(1, ln(1+f)/ln 17) + 0.25·min(1, a/3)`. Match quality stays dominant; learning can overturn a near tie. Ties break on shorter title, then localised comparison, then `ItemID`.
-- **Empty query:** the root shows the 8 items with the highest f, below any `.pinnedTop` items.
+- **Item frecency.** A pick at time t updates `s ← s·2^(−(t−t₀)/H) + 1` and `t₀ ← t`, with half-life H = 7 days. At query time `f = s·2^(−(now−t₀)/H)`. A negative elapsed time (the clock was set back) counts as zero, so waiting never raises a score.
+- **Query affinity.** A pick also upserts `(normalized query, item)` with the same decay. At query time, for query q, `a = Σ decayed(score) · m/|Q|` over stored queries Q with `Q.hasPrefix(q)`. A pick of Safari after typing "saf" boosts Safari when the user types "s". Stored queries are capped at 32 scalars, and the query is cut the same way when it is looked up, so a longer query still finds the row it was stored as. A pick from the empty field stores no query row; it could only ever contribute 0.
+- **Final rank:** `r = q + 0.15·min(1, ln(1+f)/ln 17) + 0.25·min(1, a/3)`. Match quality stays dominant; learning can overturn a near tie. Ties break on shorter title (in characters), then localised comparison (`localizedStandardCompare`), then `ItemID`.
+- **Empty query:** the root shows the 8 items with the highest f, below any `.pinnedTop` items. Only items that were ever picked (f > 0) are shown, so a fresh install has an empty list instead of eight arbitrary apps.
 - `now` is injected for tests.
+- H, the weights 0.15 and 0.25, their saturation points (f = 16, a = 3), the 0.2 threshold and the 8 suggestions are the constants of `RankingTuning` (§8, item 9).
 
 ```swift
 // OpenRayCore
 public struct UsageSnapshot: Sendable {
+    public init()                              // no usage: a fresh install, or no database
     public func frecency(of id: ItemID, at now: Date) -> Double
-    public func affinity(of id: ItemID, query: String, at now: Date) -> Double
+    public func affinity(of id: ItemID, query: String, at now: Date) -> Double   // query: SearchQuery.normalized
+    public mutating func record(pick id: ItemID, query: String, at time: Date)   // query: as typed
 }
 public protocol UsageStore: Sendable {
     func record(pick: ItemID, query: String, at: Date) async throws
     func snapshot() async -> UsageSnapshot
 }
+public actor InMemoryUsageStore: UsageStore { public init() }
 ```
 
-`SQLiteUsageStore` (an actor in Core) loads both tables at launch, writes each pick through to SQLite (§4.3.2), and keeps its in-memory `UsageSnapshot` current, so ranking never waits on disk. `LauncherModel` records every pick (§4.1.4). At launch the store deletes `usage` rows whose decayed score is below 0.01 and keeps `query_usage` to 5,000 rows, pruning the lowest decayed scores.
+`UsageSnapshot.record` is the one implementation of the update rules above; both stores call it. `record` takes the query as typed and folds it as `SearchQuery` does, composing included, so a composed and a decomposed spelling of one query are one row. `affinity` expects the folded query, because ranking asks once per matching item on every keystroke and has folded the query already. `InMemoryUsageStore` holds a snapshot and nothing else. It is for tests, and for a session whose database could not be opened (§4.2.11).
+
+`SQLiteUsageStore` (an actor in Core) loads both tables at launch, writes each pick through to SQLite (§4.3.2), and keeps its in-memory `UsageSnapshot` current, so ranking never waits on disk. `LauncherModel` records every pick (§4.1.4). At launch the store deletes `usage` rows whose decayed score is below 0.01 and keeps `query_usage` to 5,000 rows, pruning the lowest decayed scores. Both are judged by the scores decayed to the time of launch, computed in Swift, and deleted in one transaction. If the deletion fails, the store logs it and carries on with what it read, and the rows go at the next launch. The query rows of a faded item are not deleted with it: they have faded just as far, add next to nothing to a rank, and are the first to go once the table is over its limit.
+
+A pick is counted in the in-memory snapshot first and then written in one transaction, with the values the snapshot now holds, so the tables cannot drift from what ranking uses. If the write fails, `record` throws and the pick still counts until the app quits (§4.3.8).
 
 #### 4.2.8 App index
 
-`AppIndexSource` (Core, Foundation and CoreServices only) scans, in order: `/Applications`, `/Applications/Utilities`, `/System/Applications`, `/System/Applications/Utilities`, `~/Applications`, `/System/Library/CoreServices/Applications`, `/System/Library/CoreServices/Finder.app`, and user-added folders. Scans are `@concurrent`.
+`AppIndexSource` (Core, Foundation and CoreServices only) scans, in order: `/Applications`, `/Applications/Utilities`, `/System/Applications`, `/System/Applications/Utilities`, `~/Applications`, `/System/Library/CoreServices/Applications` and `/System/Library/CoreServices/Finder.app`. Scans are `@concurrent`.
 
-- Descend to depth 3 (for folders such as `/Applications/Setapp/`), never into a `.app`.
-- Follow symlinks (`/Applications/Safari.app` is a symlink into `/System/Cryptexes/App/…`) and dedupe by resolved path.
-- Keep bundles whose `CFBundlePackageType` is `APPL`, including `LSUIElement` apps.
+```swift
+// OpenRayCore
+public final class AppIndexSource: SearchSource {
+    public static let standardRoots: [URL]
+    public init(roots: [URL] = AppIndexSource.standardRoots,
+                preferredLanguages: [String] = Locale.preferredLanguages,
+                openApp: @escaping @MainActor @Sendable (URL) async throws -> Void)
+    public func rescan()                       // read every root again
+}
+```
 
-**Names** indexed for each app: the file name without `.app`; `CFBundleDisplayName` and `CFBundleName`; `FileManager.displayName(atPath:)`; and localised names for `Bundle.preferredLocalizations(from:forPreferences: Locale.preferredLanguages)` plus `en`. System apps keep localised names in `Contents/Resources/InfoPlist.loctable` (a plist of `{lang: {CFBundleDisplayName: …}}`), read directly with `PropertyListSerialization`; `Bundle.localizedInfoDictionary` returns nil for a non-main bundle. Third-party apps use `<lang>.lproj/InfoPlist.strings`.
+`openApp` is the seam to AppKit: the app target passes a closure that calls `NSWorkspace.openApplication(at:configuration:)`. A protocol would have one method and one caller. `roots` is where user-added folders will come in; there is no preference or settings pane for them before M3. A root is either a folder of apps or a single app (`Finder.app`).
 
-**IDs** follow §4.2.1: the copy in the earliest root keeps `app:<bundleID>`; other copies, and bundles without a bundle ID or with an unreadable `Info.plist`, get `app:path:<path>` with the path as subtitle.
+- A folder whose name ends in `.app` is an app, as it is for Finder. `CFBundlePackageType` is not checked: Finder's is `FNDR`, a Safari web app's is `AAPL`, and both are apps the user opens. `LSUIElement` apps are kept.
+- Search five levels below a root (an app in `/Applications/Setapp/` is at level 2; Unity Hub puts its editors at level 5, in `/Applications/Unity/Hub/Editor/<version>/`), never inside a `.app` or any other package (`URLResourceKey.isPackageKey`; an installer's `.bundle` can hold an app, which Finder and Spotlight do not show), and not in hidden folders. Folders are listed in name order, so two scans of an unchanged root give the same list.
+- Follow symlinks (`/Applications/Safari.app` is a symlink into `/System/Cryptexes/App/…`) and dedupe by resolved path. A link that points nowhere is skipped. The depth limit is what ends a loop of links.
+- A root that does not exist has no apps; many users have no `~/Applications`.
 
-**Freshness.** An `FSEventStream` on the writable roots (directory events, 1 s latency, `FSEventStreamSetDispatchQueue`) rescans the root an event falls under. `kFSEventStreamEventFlagMustScanSubDirs` or dropped events trigger a full rescan, as do launch and `NSWorkspace.didWakeNotification`. The sealed system roots only change with OS updates, so the launch scan covers them.
+**Reading a bundle.** `Contents/Info.plist` is read with `PropertyListSerialization`. An iPhone or iPad app from the App Store has no `Contents`; its `Info.plist` is read from `WrappedBundle/Info.plist`. `Bundle` is not used, because it caches what it read for as long as the process lives. `FileManager.displayName(atPath:)` is not used either: it answers in the languages the calling app is translated into (an English-only OpenRay would get "Calculator" on a German Mac, where Finder shows "Rechner"), and for a bundle LaunchServices has not seen before it blocks on a call to another process and registers the bundle.
 
-**Icons.** Core carries `.file(path)`. The app target loads icons with `NSWorkspace.icon(forFile:)` into an LRU cache keyed by path and modification date. Icons stay out of Core because Core must not depend on AppKit.
+**Names.** The bundle's localisations are its `<lang>.lproj` folders. The languages read are `Bundle.preferredLocalizations(from: <localisations>, forPreferences: preferredLanguages)`, which gives the best match with its fallbacks (`en_GB`, then `en`), plus `en`, because people also type English names on a Mac set to another language. `Bundle` never answers with nothing: for a bundle that has none of the user's languages it names `en`, or else the first localisation in the list. Such an answer is dropped. A localisation counts as one of the user's only when its language code, taken from the canonical identifier (so `German.lproj` is `de`), is that of one of `preferredLanguages`. System apps keep the strings for every language in `Contents/Resources/InfoPlist.loctable` (a plist of `{lang: {CFBundleDisplayName: …}}`); other apps use `<lang>.lproj/InfoPlist.strings`, which is UTF-16 text or a binary plist. `PropertyListSerialization` reads all three.
 
-**Actions:** Open (`openApplication(at:configuration:)`), Show in Finder, Copy Path, Copy Bundle Identifier, Quit (HUD "Not running" if it is not), Add Alias (opens Settings › Commands), Hide from Root Search (writes an override).
+The **title** is the name Finder shows, by LaunchServices' rules:
+
+1. If `CFBundleDisplayName` in `Info.plist` equals the file name without `.app`, the title is the localised `CFBundleDisplayName` in the first of the user's languages that has one. A `CFBundleDisplayName-macos` entry goes before the plain one (Image Playground is "Playground" on iOS).
+2. Otherwise, if `LSHasLocalizedDisplayName` is true and `CFBundleName` equals the file name, the same with `CFBundleName` (Activity Monitor).
+3. Otherwise, or when the bundle has no name in the user's languages, the file name. An app the user renamed therefore keeps the name the user gave it. LaunchServices shows some localised name in the second case too (asked from an English-only process about a bundle with only Arabic and Japanese names, it answered with the Japanese one, whatever the development region); the index does not follow it there.
+
+These rules were compared with `FileManager.displayName(atPath:)`, run from a bundle localised into each language, for the 188 apps of one Mac in thirteen languages. They agreed except for Safari in Simplified Chinese, where LaunchServices answers "Safari" for the symlink in `/Applications` and the index gives the app's Chinese name. In Arabic, LaunchServices also wraps each name in directional marks, which the index leaves out.
+
+Every other name is an alternate name with weight 1.0: the file name, `CFBundleDisplayName` and `CFBundleName` from `Info.plist`, and both in every language read. They are the app's own names, so "code" finds Visual Studio Code, whose bundle calls itself "Code", as an exact match. The weight 0.95 is for aliases and keywords (§4.2.9).
+
+**IDs** follow §4.2.1: the copy in the earliest root keeps `app:<bundleID>`; other copies, and bundles without a bundle ID or with an unreadable `Info.plist`, get `app:path:<path>` with the path as subtitle. The path is the one the bundle was found under, not the resolved one. Of several copies in one root, the one with the shortest path keeps the bundle ID, and of equally long paths the first in order. Usage is stored under the ID, so a copy that appears later must not take it over by sorting first, and such a copy usually has the longer name: "Xcode-beta.app" sorts before "Xcode.app".
+
+**Freshness.** Each root that exists and is not under `/System` gets its own `FSEventStream` (directory events, 1 s latency, `FSEventStreamSetDispatchQueue`, `kFSEventStreamCreateFlagWatchRoot`). Any event rescans that stream's root, and the source yields the full set again. The events are not inspected: a root is always read as a whole, which is also what `kFSEventStreamEventFlagMustScanSubDirs`, dropped events and a root that went away with its volume ask for. Watching starts before the first scan, so a change in between is not lost. The sealed system roots only change with OS updates, so the launch scan covers them. `rescan()` reads every root again; the app calls it on `NSWorkspace.didWakeNotification`. A root that appears while the app runs (the first `~/Applications`) is found by the next `rescan()` but only watched from the next launch, because a stream started on a missing folder does not report what later happens inside it. `indexedItems()` is made for one consumer at a time, the registry. Each stream it returns has its own queue of rescan requests, and `rescan()` and the watchers feed the stream that was returned last; a stream taken after an earlier one has ended is kept current like the first.
+
+**Icons.** Core carries `.file(path)` with the bundle's resolved path, not the path it was found under: the icon of a symbolic link is drawn with an alias arrow, and `/Applications/Safari.app` is one. The app target loads icons with `NSWorkspace.icon(forFile:)` into an `NSCache` with a count limit, keyed by path and modification date, so an app that was updated shows its new icon. Icons stay out of Core because Core must not depend on AppKit.
+
+**Actions.** M2 has one: Open. It calls `ActionContext.closeLauncher()` first (§4.1.6; an app that was not running can take seconds to show its window), then `openApp`, and returns `.closeLauncher`; an error from `openApp` is thrown to the shell, which logs it and from M3 on shows it in the HUD (§4.1.4). M3 adds Show in Finder, Copy Path, Copy Bundle Identifier, Quit (HUD "Not running" if it is not), Add Alias (opens Settings › Commands) and Hide from Root Search (writes an override).
 
 #### 4.2.9 Aliases, quicklinks and fallback
 
@@ -785,12 +863,12 @@ System command descriptors live in Core; their effects go through `SystemControl
 
 | Case | Behaviour |
 |---|---|
-| A source throws or is slow | Its section is omitted; after 2 s the condition is logged. Other results stand. |
+| A source throws or is slow | A source that throws is logged and has no section. One that has not answered after 2 s is logged; its section appears when it answers. Other results stand, and the search is answered either way (§4.2.5). |
 | Query changes mid-search | The task is cancelled; stale results are dropped by generation. |
-| FSEvents drops events or a volume unmounts | Full rescan. Vanished apps are removed; their usage rows are pruned by decay. |
+| FSEvents drops events or a volume unmounts | The root the stream watches is read again as a whole (§4.2.8). Vanished apps are removed; their usage rows are pruned by decay. |
 | Automation denied | §5.1 |
 | Restart cancelled by an app | Nothing to do; loginwindow names the cancelling app. |
-| Database unavailable | Ranking uses an empty `UsageSnapshot`; search still works. |
+| Database unavailable | The app runs on an `InMemoryUsageStore` (§3.2): ranking starts from an empty `UsageSnapshot` and learns for this run only. Search still works. |
 
 ### 4.3 Storage and settings
 
@@ -807,7 +885,7 @@ Data is split by kind, with one store for each:
 
 All paths come from `AppPaths` (Core), which derives them from `AppInfo.bundleIdentifier`, the running bundle's identifier, so Debug and Release builds never share data (§6.6). A process without a bundle identifier, such as a `swift test` run, uses its process name instead.
 
-| Path under `~/Library/Application Support/<bundle id>/` (mode 0700) | Contents |
+| Path under `~/Library/Application Support/<bundle id>/` (created with mode 0700) | Contents |
 |---|---|
 | `OpenRay.sqlite` (+ `-wal`, `-shm`) | usage, commands, snippets |
 | `Clipboard/Clipboard.sqlite` (+ `-wal`, `-shm`) | clipboard history |
@@ -816,9 +894,11 @@ All paths come from `AppPaths` (Core), which derives them from `AppInfo.bundleId
 
 Clipboard history lives in its own database so that clearing history can delete the whole directory, a corrupt history cannot take snippets with it, and backups can exclude it. `URLResourceValues.isExcludedFromBackup` applies only to the item it is set on, and in WAL mode recent data lives in the `-wal` file, so the flag is set on the `Clipboard/` directory, not on the database file.
 
-**GRDB** (§5.2) wraps the system SQLite. It provides `DatabasePool` (WAL, concurrent reads, serialised writes; `@unchecked Sendable`), `DatabaseMigrator` (`Sendable`), `ValueObservation`, and FTS5 support. The macOS 26 SDK ships SQLite 3.51.0 and the 27.2 SDK 3.54.0, both built with FTS5, so the FTS5 `trigram` tokenizer (SQLite 3.34+) is available on every supported OS. A CI test that creates a trigram table guards this. GRDB 7.12.0 has no trigram helper, so the tokenizer is `FTS5TokenizerDescriptor(components: ["trigram"])`.
+**GRDB** (§5.2) wraps the system SQLite. It provides `DatabasePool` (WAL, concurrent reads, serialised writes; `@unchecked Sendable`), `DatabaseMigrator` (`Sendable`), `ValueObservation`, and FTS5 support. The macOS 26 SDK ships SQLite 3.51.0 and the 27.2 SDK 3.54.0, both built with FTS5, so the FTS5 `trigram` tokenizer (SQLite 3.34+) is available on every supported OS. A CI test that creates a trigram table and finds text from the middle of a word guards this (`AppDatabaseTests`, through an internal function of `AppDatabase`, because the tests do not link GRDB). GRDB 7.12.0 has no trigram helper, so the tokenizer is `FTS5TokenizerDescriptor(components: ["trigram"])`.
 
-Pragmas, set in `Configuration.prepareDatabase`: `journal_mode=WAL`, `foreign_keys=ON`; `Clipboard.sqlite` also sets `secure_delete=ON` and `auto_vacuum=INCREMENTAL`.
+Pragmas: `journal_mode=WAL` and `foreign_keys=ON` are not set by hand, because a `DatabasePool` always runs in WAL mode and GRDB turns foreign keys on for every connection (`Configuration.foreignKeysEnabled` defaults to true). `Clipboard.sqlite` sets `secure_delete=ON` and `auto_vacuum=INCREMENTAL` in `Configuration.prepareDatabase`.
+
+A pool needs a file, so `AppDatabase.inMemory()` is a `DatabaseQueue`: one connection, no WAL, the same migrations. Stores reach either through `any DatabaseWriter`.
 
 **Migrations.** One `DatabaseMigrator` per file. Migration names carry their milestone. A migration that has shipped is never edited. `eraseDatabaseOnSchemaChange` is on in DEBUG builds only.
 
@@ -899,7 +979,9 @@ public struct AppDatabase: Sendable {
     public static func openOnDisk(at directory: URL) throws -> AppDatabase
     public static func inMemory() throws -> AppDatabase                // tests
 }
-public actor SQLiteUsageStore: UsageStore { public init(database: AppDatabase) async throws }   // §4.2.7
+public actor SQLiteUsageStore: UsageStore {                           // §4.2.7
+    public init(database: AppDatabase, now: Date = Date()) async throws   // now: when the stored scores are judged for pruning
+}
 
 public struct CommandStore: Sendable {
     public func snapshot() async throws -> CommandOverrides           // aliases, overrides, quicklinks, fallback order
@@ -929,6 +1011,8 @@ public struct SnippetStore: Sendable {
     public func observeAll() -> AsyncThrowingStream<[Snippet], Error>
 }
 ```
+
+`openOnDisk` creates the directory if it is missing, runs the migrations and recovers from a database it cannot open (§4.3.8). It works on the disk and blocks, so callers on the main actor go through a `@concurrent` function.
 
 `CommandOverrides`, `ItemOverride`, `Quicklink`, `Snippet`, `ClipID`, `ClipSummary` and `RetentionPolicy` are `Sendable` value types mirroring the tables in §4.3.2. `CapturedClip` carries a clip's kind, its representations (`[ClipRepresentation]`, §4.1.7), its plain text and its source bundle ID.
 
@@ -1039,8 +1123,8 @@ The onboarding window uses `SettingsWindowController`'s activation path and open
 
 | Case | Behaviour |
 |---|---|
-| Database fails to open or migrate | Move it aside to `*.corrupt-<date>`, create a fresh one, show a one-time notice. For `OpenRay.sqlite`, export snippets first if they can be read. |
-| Disk full | Writes throw; the clipboard monitor drops the clip and logs it; the launcher keeps working read-only. |
+| Database fails to open or migrate | `openOnDisk` logs the error, renames the file and its `-wal` and `-shm` companions by appending `.corrupt-<yyyyMMdd-HHmmss>`, and opens a fresh database. It throws only when that fails too, and the session then runs without a database, on an `InMemoryUsageStore` (§4.2.11). A one-time notice is shown from M3 on, when the HUD exists; until then the log is the only trace. From M7 on, snippets are exported from `OpenRay.sqlite` first if they can be read. |
+| Disk full | Writes throw; the clipboard monitor drops the clip and logs it; the launcher keeps working read-only. A pick that could not be written still counts in the usage snapshot until the app quits. |
 | Settings window opens behind other windows | One retry (§4.3.5); on the manual checklist |
 
 ### 4.4 Calculator
@@ -1552,7 +1636,7 @@ Third-party code is avoided unless it saves substantial, risky work. `DEPENDENCI
 | GRDB.swift | SQLite access: connection pool, migrations, observation, FTS5, `Sendable` types | MIT | `exact: "7.12.0"` (requires swift-tools 6.1; Xcode 26 ships Swift 6.2) | `OpenRayCore` only |
 | Sparkle | Auto-update | MIT for Sparkle itself, plus BSD-style licences for bundled components (bsdiff/bspatch) and other bundled notices, which must be reproduced in the app's acknowledgements | `exact: "2.10.1"` | App target only (binary XCFramework) |
 
-`Package.resolved` is committed for both the package and the Xcode project, and CI checks that they resolve GRDB to the same version, because `swift test` and `xcodebuild` resolve separately.
+`Package.resolved` is committed for both the package and the Xcode project, and CI checks that they resolve GRDB to the same version, because `swift test` and `xcodebuild` resolve separately. CI also keeps both builds to their file (`swift test --force-resolved-versions`, `xcodebuild -disableAutomaticPackageResolution`): a pin that the manifest no longer allows fails the build, where it would otherwise be replaced without a word and the check would have compared two stale files.
 
 Considered and not adopted: KeyboardShortcuts (MIT; the hotkey code needed is about 300 lines), `swift-subprocess` 1.0.2 (Apache-2.0; the runner is about 250 lines and is the fallback if it grows), any fuzzy-matching, SSE, Markdown or math-parser package (each under 500 lines to own, and none fits the requirements), SQLCipher (§4.5), SettingsAccess (works around a scene OpenRay does not use).
 
@@ -1562,7 +1646,7 @@ Considered and not adopted: KeyboardShortcuts (MIT; the hotkey code needed is ab
 
 **Logging.** `Logger(subsystem: AppInfo.bundleIdentifier, category: …)`, one category per subsystem (`launcher`, `search`, `storage`, `clipboard`, `ai`, `windows`, `files`, `scripts`, `permissions`, `updates`). The loggers are static members of `Log` in Core (`Log.launcher`, `Log.storage`), each added with the first subsystem that logs. Interpolations are private by default. Queries, clipboard contents, AI prompts and replies, and file paths use `privacy: .private`, or `.private(mask: .hash)` where entries need correlating. Counts and timings use `.public`. API keys are never logged.
 
-**Signposts.** One `OSSignposter(subsystem: bundleID, category: .pointsOfInterest)`, held with the interval names by `Signposts` in Core, with intervals `hotkeyToFirstFrame`, `keystrokeToResults`, `indexBuild` and `dbQuery`, viewed in Instruments against the budget in §4.1.9. The first two begin when their event is handled, not when it happened, and carry the true time since the event in their end message (§4.1.9).
+**Signposts.** One `OSSignposter(subsystem: bundleID, category: .pointsOfInterest)`, held with the interval names by `Signposts` in Core, with intervals `hotkeyToFirstFrame`, `keystrokeToResults`, `indexBuild` and `dbQuery`, viewed in Instruments against the budget in §4.1.9. The first two begin when their event is handled, not when it happened, and carry the true time since the event in their end message (§4.1.9). `indexBuild` (M2) spans one build of an `IndexSnapshot` and names the number of items; each build has a signpost ID of its own, because a build that was overtaken can overlap the next. `dbQuery` arrives with M4, with the first query that a keystroke waits for (clipboard search). The only database work before that is the usage store's load at launch and one small write per pick, and nothing on screen waits for either.
 
 **Diagnostics.** About › "Copy diagnostics" reads `OSLogStore(scope: .currentProcessIdentifier)`. UNVERIFIED: whether private values come back redacted when read in-process. Crash reports come from `~/Library/Logs/DiagnosticReports`; optionally a local-only `MXMetricManager` subscriber shows the last crash diagnostic in About. There is no analytics or crash SDK, and `PRIVACY.md` lists every network request (the appcast fetch and user-triggered Claude API calls).
 
@@ -1573,7 +1657,7 @@ Considered and not adopted: KeyboardShortcuts (MIT; the hotkey code needed is ab
 | Area | Core tests (CI) |
 |---|---|
 | Shell | `KeyRouter` table (marked text, exact modifiers, keypad Enter, AZERTY ⌘1 by key code, Dvorak ⌘K by character, Cyrillic ⌘K fallback, item shortcuts and their priority, editing-chord fall-through); `LauncherState` (push and pop restore query and selection, first row on a new query, selection kept by position, no wrap-around, the Esc ladder, Tab fallback, stale generations dropped, re-show, the action panel, what is ignored while an action runs, late outcomes dropped by serial); `PanelPlacement` (negative-origin displays, mouse on a seam and on a top edge, displays without a menu bar, displays too small for the panel, whole points); `HotKey` (Codable round trip and stored format, Carbon modifier bits, validation); identifiers (namespace formats, plain-string coding); `PreferencesStore` and `Preferences` (round trips, defaults for unreadable values, `changes(for:)`, observation) |
-| Search | Matcher golden cases (prefix against fuzzy, "vsc", "gh" → GitHub Desktop, Größe/grosse, 微信 by "weixin" and "wx", full-width input) and a property test that highlights increase and fold to the query; ranking with an injected clock and fake `UsageSnapshot` (learning flips "s" to Safari; frecency alone cannot lift q = 0.3 over a prefix match); decay maths at exact half-lives and pruning; `SearchSession` with fake sources (cancellation, the 12 ms publish, slow sections, selection kept by ID); app index over a temporary directory of fake bundles (Info.plist, loctable, lproj, symlink, duplicate bundle ID) and one FSEvents test with a 5 s timeout; quicklink expansion (spaces, `&`, `#`, emoji, empty argument); system command descriptors |
+| Search | Matcher golden cases (prefix against fuzzy, "vsc", "gh" → GitHub Desktop, Größe/grosse, 微信 by "weixin" and "wx", full-width input) and a property test that highlights increase and fold to the query; ranking with an injected clock and fake `UsageSnapshot` (learning flips "s" to Safari; frecency alone cannot lift q = 0.3 over a prefix match); decay maths at exact half-lives and pruning; `SearchSession` with fake sources (an answer for every search, cancellation, the 12 ms publish, slow sections, selection kept by ID, index changes, survivors, the row limit); app index over a temporary directory of fake bundles (Info.plist, loctable, lproj, symlink, duplicate bundle ID) and one FSEvents test with a 5 s timeout; quicklink expansion (spaces, `&`, `#`, emoji, empty argument); system command descriptors |
 | Storage | Every store against `AppDatabase.inMemory()`; migrations from fixture databases of each earlier milestone; FTS queries; dedup bumps; pruning with an injected clock; a trigram-table smoke test |
 | Calculator | Table-driven cases in `en_US`, `de_DE` and `fr_CH`; property tests against `Double` within tolerance; fuzzing with random bytes (no crash, bounded time) |
 | Clipboard, snippets | `CapturedClip` rules (marker types, oversized payloads, duplicates); `SnippetRenderer` with fixed date, locale and clipboard |
@@ -1584,7 +1668,7 @@ Considered and not adopted: KeyboardShortcuts (MIT; the hotkey code needed is ab
 
 SSE fixtures are recorded by `Scripts/record-claude-fixture.sh` with curl and the developer's key from an environment variable; the key never enters the file. An opt-in live smoke test runs only when `OPENRAY_LIVE_ANTHROPIC_KEY` is set and never in CI.
 
-**Builds.** CI builds the package and the app in Swift 6 mode (the concurrency authority, §3.4), checks Core's imports (§3.1), checks the two `Package.resolved` files agree (§5.2), and runs `swift format lint --strict --recursive OpenRay Packages` against a committed `.swift-format`. Core benchmarks (200-row results through the reducer, matching over a large index) live in a separate test target timed with `ContinuousClock`; they report in CI but do not gate merges, because hosted runners are noisy.
+**Builds.** CI builds the package and the app in Swift 6 mode (the concurrency authority, §3.4), checks Core's imports (§3.1), checks the two `Package.resolved` files agree (§5.2), and runs `swift format lint --strict --recursive OpenRay Packages` against a committed `.swift-format`. Core benchmarks (200-row results through the reducer, matching over a large index) live in a separate test target timed with `ContinuousClock`; they report in CI but do not gate merges, because hosted runners are noisy. The target arrives with M6, together with the tuning of the ranking constants (§8, item 9); until then the budget is read from the signposts in Instruments.
 
 **UI tests.** XCUITest may cover the settings and onboarding windows and the launcher, opened with the `-OpenRayShowPanelOnLaunch` launch argument instead of the hotkey. The job is non-blocking at first. UNVERIFIED: whether GitHub's hosted macOS runners allow UI automation, and whether `XCTOSSignpostMetric` latency tests run there.
 
@@ -1594,7 +1678,7 @@ SSE fixtures are recorded by `Scripts/record-claude-fixture.sh` with curl and th
 
 **Accessibility.** The search field keeps focus, so selection changes are not announced automatically; `LauncherModel` posts `AccessibilityNotification.Announcement("<title>, <n> of <m>")` once the selection has rested for 300 ms, so a held arrow key does not queue one announcement per row, and only while the panel is visible. Rows carry labels and the `.isSelected` trait. Animations follow `NSWorkspace.shared.accessibilityDisplayShouldReduceMotion` in AppKit and `@Environment(\.accessibilityReduceMotion)` in SwiftUI, and reduced transparency is respected. Every function is reachable without a mouse, including the hotkey recorder. VoiceOver is on the manual checklist.
 
-**Localisation.** The app target uses String Catalogs. Core uses `String(localized:bundle: .module)` with `defaultLocalization: "en"` in `Package.swift`. No user-visible string is built by concatenation, and plurals go through the catalog. Matching already handles localised app names and non-Latin scripts (§4.2.6, §4.2.8). Only English ships in v0.1.
+**Localisation.** The app target uses String Catalogs. Core uses `String(localized:bundle: .module)` with `defaultLocalization: "en"` in `Package.swift`; its catalog is `Sources/OpenRayCore/Resources/Localizable.xcstrings`, a processed resource of the target. Xcode compiles the catalog into the package's resource bundle inside the app. `swift build` only copies it, so under `swift test` every string is its English key. No user-visible string is built by concatenation, and plurals go through the catalog. Matching already handles localised app names and non-Latin scripts (§4.2.6, §4.2.8). Only English ships in v0.1.
 
 ## 6. Distribution and release
 
@@ -1674,11 +1758,11 @@ The designated requirement of an ad-hoc signature is a bare `cdhash` (checked wi
 | Milestone | Delivers |
 |---|---|
 | 1 Launcher shell | `LauncherPanel` and its configuration (§4.1.1), the hidden main menu with its Edit menu, `HotKey`/`HotKeyCenter`/`LauncherHotKey`/recorder (§4.1.2), `KeyRouter` (§4.1.3), `LauncherState` and `LauncherModel` (§4.1.4), the value types of §4.2.1–4.2.2 in their final shape and the results list rendering `ResultSection`s from a fake `SearchSource` (§4.1.5), `FocusRestorer.restoreIfNeeded()` (§4.1.7), `DisplayGeometry` and `PanelPlacement` (§4.1.8), the latency signposts (§4.1.9, §5.3), `PreferencesStore`/`Preferences` with `launcher.hotKey` (§4.3.4), `SettingsWindowController` with the General pane (§4.3.5), the Debug bundle ID and bundle-ID-derived paths and logger (§6.6), the concurrency build settings (§3.4), the Core import check, `-OpenRayShowPanelOnLaunch`. Until M2 the model asks the one fake source directly and choosing a row only closes the launcher; until M3 ⌘K does nothing |
-| 2 App search | The `ActionContext` implementation for primary actions; `CommandRegistry`, `SearchSession`, the matcher, frecency and `SQLiteUsageStore` (§4.2.4–4.2.7); GRDB, `AppDatabase` and `m2_usage` (§4.3); `AppIndexSource` with a primary action only (§4.2.8); pick recording in `LauncherModel` |
-| 3 Command model | Secondary actions and the ⌘K panel; `ScreenRequest`, `ScreenSpec`, `ScreenRegistry`, `ScreenContext`, list and custom screens (§4.1.5); `Feature` and `FeatureEnvironment`; the HUD and in-panel confirmations (§4.1.6); `m3_commands` and `CommandStore`; aliases, overrides, quicklinks and the fallback section (§4.2.9); system commands, `SystemControl` and `AppleEventSender` (§4.2.10); `PermissionCenter` with Automation and the permission screen (§5.1); the Commands pane and feature panes; launch at login (§4.3.6); onboarding steps 1–3 (§4.3.7) |
-| 4 First built-ins | Calculator (§4.4); clipboard history, `m4_clipboard` and `ClipboardStore` (§4.5); `PasteService` and `FocusRestorer.restore()` (§4.1.7); Accessibility in `PermissionCenter`; onboarding steps 4 and 6 |
+| 2 App search | The `ActionContext` implementation for primary actions: `closeLauncher`, `query` and `previousApp` (§4.2.2); `CommandRegistry` without overrides, `SearchSession`, the matcher, frecency and `SQLiteUsageStore` (§4.2.4–4.2.7); GRDB, `AppDatabase` and `m2_usage` (§4.3); `AppIndexSource` over the standard roots with a primary action only, the rescan on wake and the icon cache (§4.2.8); the `indexBuild` signpost (§5.3); Core's string catalog (§5.5); running an action and pick recording in `LauncherModel` (§4.1.4, steps 3 to 5 without the HUD); the launcher composed after the database has opened (§3.2). The fake source of M1 is gone |
+| 3 Command model | Secondary actions and the ⌘K panel; overrides and the removal of colliding action shortcuts in `CommandRegistry` (§4.2.4); the secondary app actions and user-added app folders (§4.2.8); `ScreenRequest`, `ScreenSpec`, `ScreenRegistry`, `ScreenContext`, list and custom screens (§4.1.5); `Feature` and `FeatureEnvironment`; the HUD and in-panel confirmations (§4.1.6), with them `ActionContext.showHUD` and `confirm`, steps 1 and 2 of running an action and the HUD for an action's error (§4.1.4), and the notice for a database that was replaced (§4.3.8); `m3_commands` and `CommandStore`; aliases, overrides, quicklinks and the fallback section (§4.2.9); system commands, `SystemControl` and `AppleEventSender` (§4.2.10); `PermissionCenter` with Automation and the permission screen (§5.1); the Commands pane and feature panes; launch at login (§4.3.6); onboarding steps 1–3 (§4.3.7) |
+| 4 First built-ins | Calculator (§4.4); clipboard history, `m4_clipboard` and `ClipboardStore` (§4.5); `PasteService`, with it `ActionContext.copy` and `paste`, and `FocusRestorer.restore()` (§4.1.7); the `dbQuery` signpost (§5.3); Accessibility in `PermissionCenter`; onboarding steps 4 and 6 |
 | 5 Quick AI | §4.6: provider protocol, `ClaudeProvider`, SSE parsing, `QuickAISession`, `KeychainSecretStore`, the chat screen, `tabFallback`, the "Ask AI" fallback row |
-| 6 Public v0.1 | §6: signing, notarisation, `release.yml`, Sparkle, appcast, Homebrew tap; Updates and About panes; onboarding step 5; `CONTRIBUTING.md`, `PRIVACY.md`, `DEPENDENCIES.md`, `CHANGELOG.md`, `RELEASE_CHECKLIST.md` |
+| 6 Public v0.1 | §6: signing, notarisation, `release.yml`, Sparkle, appcast, Homebrew tap; Updates and About panes; onboarding step 5; the Core benchmark target and its CI step (§5.4); `CONTRIBUTING.md`, `PRIVACY.md`, `DEPENDENCIES.md`, `CHANGELOG.md`, `RELEASE_CHECKLIST.md` |
 | 7 More built-ins | Window management and Lock Screen (§4.7, §4.2.10), file search (§4.8), snippets and `m7_snippets` (§4.9); each ships as its own release |
 | 8 Script commands | §4.10 |
 
@@ -1711,7 +1795,7 @@ The designated requirement of an ad-hoc signature is a bare `cdhash` (checked wi
 | 6 | Pasteboard privacy | Is the alert enforced by default on macOS 26.x and 27.2, and which calls trigger it? Run the experiment in §4.5. If even `changeCount` alerts, reconsider whether clipboard history can ship as designed. | M4 |
 | 7 | Automation targets | Does sending to loginwindow prompt? Does the Privacy_Automation settings link work on macOS 26? Test with a signed, hardened build. | M3 |
 | 8 | Lock Screen | Does a synthetic ⌃⌘Q lock the screen? If not, Lock Screen does not ship (no private API). | M7 |
-| 9 | Ranking constants | Tune H, the 0.15 and 0.25 weights and the 0.2 threshold against real sessions. Decide whether to collect sessions locally on an opt-in basis. | M2 |
+| 9 | Ranking constants | Tune H, the 0.15 and 0.25 weights and the 0.2 threshold against real sessions. Decide whether to collect sessions locally on an opt-in basis. M2 shipped the first guesses as the constants of `RankingTuning`; there were no sessions to tune against. | M6 |
 | 10 | Ignore list | Verify the bundle IDs of the default ignored apps and whether those apps already set `ConcealedType`. | M4 |
 | 11 | Currency conversion | Add it after v1? It would be OpenRay's first background network call (the ECB reference-rate feed is a candidate; its reuse terms are UNVERIFIED) and would need a setting. | after v1 |
 | 12 | Quick AI default model | Compare Haiku 5.5 with Sonnet 5.5 at `low` effort on about 30 typical launcher questions for time to first token and quality. | M5 |

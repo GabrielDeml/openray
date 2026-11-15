@@ -9,7 +9,8 @@ public enum SourceLatency: Sendable {
 public struct SearchQuery: Sendable, Hashable {
     /// The text as typed.
     public var raw: String
-    /// `raw` without surrounding whitespace, folded for case, diacritics and width.
+    /// `raw` without surrounding whitespace, composed (NFC) and folded for case, diacritics
+    /// and width.
     public var normalized: String
     /// The first whitespace-separated token of `raw`.
     public var head: String
@@ -21,7 +22,9 @@ public struct SearchQuery: Sendable, Hashable {
         let headEnd = trimmed.firstIndex(where: \.isWhitespace) ?? trimmed.endIndex
 
         self.raw = raw
-        normalized = trimmed.folding(
+        // Composed first, so that text pasted in decomposed form reads like the same text typed.
+        // Folding alone leaves Hangul and voiced kana in the form it finds them.
+        normalized = trimmed.precomposedStringWithCanonicalMapping.folding(
             options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], locale: nil)
         head = String(trimmed[..<headEnd])
         tail = trimmed[headEnd...].trimmingCharacters(in: .whitespacesAndNewlines)

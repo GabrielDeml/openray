@@ -1,0 +1,18 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "Application" : {
+      "comment" : "The kind of a search result that is an app, shown at the end of its row."
+    },
+    "Open" : {
+      "comment" : "The action that opens the selected app."
+    },
+    "Results" : {
+      "comment" : "The heading over the search results."
+    },
+    "Suggestions" : {
+      "comment" : "The heading over the most used items, shown while nothing is typed."
+    }
+  },
+  "version" : "1.0"
+}

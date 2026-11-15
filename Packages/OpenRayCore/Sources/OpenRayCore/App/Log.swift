@@ -3,6 +3,7 @@ import os
 /// One `Logger` per subsystem category. Interpolated values are private unless marked otherwise.
 public enum Log {
     public static let launcher = Logger(subsystem: AppInfo.bundleIdentifier, category: "launcher")
+    public static let search = Logger(subsystem: AppInfo.bundleIdentifier, category: "search")
     public static let storage = Logger(subsystem: AppInfo.bundleIdentifier, category: "storage")
 }
 
@@ -16,4 +17,6 @@ public enum Signposts {
     public static let hotkeyToFirstFrame: StaticString = "hotkeyToFirstFrame"
     /// From a keystroke in the search field to its results being drawn.
     public static let keystrokeToResults: StaticString = "keystrokeToResults"
+    /// Building one `IndexSnapshot` from the items of every source.
+    public static let indexBuild: StaticString = "indexBuild"
 }

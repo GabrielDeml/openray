@@ -2,9 +2,10 @@
 
 An open-source launcher for macOS: summon it with a hotkey, type, and act.
 
-OpenRay is at the very start. Right now it builds a menu-bar app and nothing
-more. See [ROADMAP.md](ROADMAP.md) for what is planned and in what order, and
-[docs/DESIGN.md](docs/DESIGN.md) for how it will be built.
+OpenRay is still early. Right now a global hotkey opens the launcher, and it
+finds and opens the apps on your Mac, ranking them by what you pick. See
+[ROADMAP.md](ROADMAP.md) for what is planned and in what order, and
+[docs/DESIGN.md](docs/DESIGN.md) for how it is built.
 
 ## Requirements
 
@@ -19,6 +20,9 @@ the command line:
 ```bash
 xcodebuild -project OpenRay.xcodeproj -scheme OpenRay build
 ```
+
+The first build downloads [GRDB](https://github.com/groue/GRDB.swift), the
+only dependency, so it needs a network connection.
 
 ## Test
 
