@@ -1,6 +1,17 @@
 import Accessibility
 import Observation
 import OpenRayCore
+import SwiftUI
+
+/// What the search bar shows. The model decides it from the screen on top and the action
+/// panel; the window applies it.
+nonisolated struct SearchBarAppearance: Equatable {
+    var placeholder: String
+    /// A screen can do without the search field. The bar then shows the screen's title.
+    var isFieldHidden: Bool
+    /// The title of the screen on top; nil at the root.
+    var screenTitle: String?
+}
 
 /// What the launcher's model needs from the window around it.
 protocol LauncherShell: AnyObject {
@@ -9,6 +20,7 @@ protocol LauncherShell: AnyObject {
     /// Makes the search field first responder with its text selected.
     func focusSearchField()
     func setSearchFieldText(_ text: String)
+    func setSearchBar(_ appearance: SearchBarAppearance)
     func openSettings()
     /// New results are in the model and will be drawn at the next display refresh.
     func resultsDidCommit()
@@ -16,10 +28,10 @@ protocol LauncherShell: AnyObject {
     var previousApp: AppRef? { get }
 }
 
-/// The only observable state the launcher's views read: the navigation state and the results
-/// for the current query. Every intent goes through `apply(_:)`, which runs the effects the
-/// reducer returns: it hands searches to the `SearchSession`, runs actions and records what
-/// the user picked.
+/// The only observable state the launcher's views read: the navigation state, the results for
+/// the current query and the screens on the stack. Every intent goes through `apply(_:)`, which
+/// runs the effects the reducer returns: it hands searches to the `SearchSession`, shows and
+/// drops screens, runs actions and records what the user picked.
 @Observable
 final class LauncherModel {
     /// Asks the list to bring a row into view. `serial` makes two requests for the same row
@@ -29,23 +41,74 @@ final class LauncherModel {
         let serial: UInt64
     }
 
+    /// A screen on the stack: what its feature built, and the context the two talk through.
+    struct ActiveScreen {
+        let spec: ScreenSpec
+        let context: LauncherScreenContext
+    }
+
+    /// One row of the action panel.
+    struct ActionPanelRow: Identifiable {
+        let id: ActionID
+        let title: String
+        let icon: IconSource?
+        let isDestructive: Bool
+        /// The chord that runs the action without the panel; nil for an action without one.
+        let shortcut: KeyChord?
+        /// Whether Return runs the action while the panel is closed.
+        let isPrimary: Bool
+    }
+
+    /// An action together with the item it acts on; a screen's own action has no item.
+    private struct ActionTarget {
+        let action: ActionDescriptor
+        let item: SearchItem?
+    }
+
+    private static let rootSearchBar = SearchBarAppearance(
+        placeholder: String(localized: "Search for apps and commands…"), isFieldHidden: false,
+        screenTitle: nil)
+
     private(set) var state = LauncherState()
     private(set) var results = SearchResults(sections: [], generation: 0)
+    /// One for every frame above root search, in the order of `state.stack`.
+    private(set) var screens: [ActiveScreen] = []
     private(set) var scrollRequest: ScrollRequest?
+    private(set) var searchBar = LauncherModel.rootSearchBar
 
     @ObservationIgnored weak var shell: (any LauncherShell)?
     @ObservationIgnored private let search: SearchSession
     @ObservationIgnored private let usage: any UsageStore
+    @ObservationIgnored private let screenRegistry: ScreenRegistry
+    @ObservationIgnored private let permissions: any PermissionChecking
+    @ObservationIgnored private let hud: HUDController
     /// The action that was started last. Esc cancels it while its frame waits for it.
     @ObservationIgnored private var actionTask: Task<Void, Never>?
     @ObservationIgnored private var announcementTask: Task<Void, Never>?
+    /// Whoever asked the confirmation that is up, waiting for the answer.
+    @ObservationIgnored private var confirmationAnswer: CheckedContinuation<Bool, Never>?
 
-    init(search: SearchSession, usage: any UsageStore) {
+    init(
+        search: SearchSession, usage: any UsageStore, screenRegistry: ScreenRegistry,
+        permissions: any PermissionChecking, hud: HUDController
+    ) {
         self.search = search
         self.usage = usage
+        self.screenRegistry = screenRegistry
+        self.permissions = permissions
+        self.hud = hud
         search.onResults = { [weak self] results in
             self?.receive(results)
         }
+    }
+
+    // MARK: What is on screen
+
+    var topScreen: ActiveScreen? { screens.last }
+
+    /// The sections the list shows: those of the list screen on top, or the root results.
+    var visibleSections: [ResultSection] {
+        topScreen?.context.sections ?? results.sections
     }
 
     var selectedItem: SearchItem? {
@@ -54,7 +117,7 @@ final class LauncherModel {
     }
 
     private func item(withID id: ItemID) -> SearchItem? {
-        for section in results.sections {
+        for section in visibleSections {
             for row in section.rows {
                 if row.item.id == id { return row.item }
             }
@@ -62,41 +125,104 @@ final class LauncherModel {
         return nil
     }
 
-    /// The shortcuts of the selected item's actions, for `KeyRouter`.
-    var selectedItemShortcuts: [KeyChord: ActionID] {
-        guard let item = selectedItem else { return [:] }
-        var shortcuts: [KeyChord: ActionID] = [:]
-        for action in item.actions {
-            if let shortcut = action.shortcut {
-                shortcuts[shortcut] = action.id
-            }
+    /// The actions that ⌘K lists and that shortcuts run: those of the selected item, or of the
+    /// screen on top when it is a custom screen.
+    var currentActions: [ActionDescriptor] {
+        if let item = selectedItem { return item.actions }
+        return topScreen?.context.screenActions ?? []
+    }
+
+    /// The shortcuts of the current actions, for `KeyRouter`.
+    var currentShortcuts: [KeyChord: ActionID] {
+        ActionShortcuts.shortcuts(of: currentActions)
+    }
+
+    /// The rows of the open action panel, in the order the reducer holds them.
+    var actionPanelRows: [ActionPanelRow] {
+        guard let panel = state.actionPanel else { return [] }
+        let actions = currentActions
+
+        var rows: [ActionPanelRow] = []
+        for id in panel.rows {
+            guard let index = actions.firstIndex(where: { $0.id == id }) else { continue }
+            let action = actions[index]
+            let row = ActionPanelRow(
+                id: id, title: action.title, icon: action.icon,
+                isDestructive: action.isDestructive,
+                shortcut: ActionShortcuts.shortcut(ofActionAt: index, in: actions),
+                isPrimary: index == 0)
+            rows.append(row)
         }
-        return shortcuts
+        return rows
     }
 
     /// Whether the current query has been answered with nothing.
     var hasNoResults: Bool {
+        if state.top.query.isEmpty { return false }
+        if let screen = topScreen {
+            let rowsAnswerCurrentQuery = screen.context.answeredQuery == state.top.query
+            return rowsAnswerCurrentQuery && screen.context.sections.isEmpty
+        }
         let resultsAnswerCurrentQuery = results.generation == state.generation
-        return resultsAnswerCurrentQuery && results.sections.isEmpty && !state.top.query.isEmpty
+        return resultsAnswerCurrentQuery && results.sections.isEmpty
     }
 
+    // MARK: Intents
+
     func apply(_ intent: LauncherIntent) {
-        // Opening the action panel hands the search field to the panel's filter, and the
-        // overlay that would show the panel does not exist until items have secondary actions.
-        if intent == .toggleActionPanel { return }
+        var intent = intent
+        if let screen = customScreenTakingKeys, let handleIntent = screen.spec.intentHandler {
+            if Self.isOfferedToScreens(intent) && handleIntent(intent) { return }
+            // Return that the screen left alone runs the screen's first action, as it runs
+            // the first action of a selected item.
+            if intent == .performPrimary, let primary = screen.context.screenActions.first {
+                intent = .performAction(primary.id)
+            }
+        }
+
         let fieldTextBefore = state.searchFieldText
+        let depthBefore = state.depth
         let effects = state.apply(intent)
 
-        // The reducer changes the field's text without an effect: Esc clears the query, and
-        // leaving a screen restores the query below it. The field is written only then, because
-        // text an input method is still composing is in the field but not yet in the state, and
-        // writing would discard it.
+        // The reducer changes the field's text without an effect: Esc clears the query, leaving
+        // a screen restores the query below it, and the action panel swaps its filter in and
+        // out. The field is written only then, because text an input method is still composing
+        // is in the field but not yet in the state, and writing would discard it.
         if state.searchFieldText != fieldTextBefore {
             shell?.setSearchFieldText(state.searchFieldText)
         }
         // After the field is written, so that `.focusSearchField` selects the new text.
         for effect in effects {
             run(effect)
+        }
+
+        if state.depth < depthBefore {
+            deliverRowsOfTopScreen()
+        }
+        syncActionPanelRows()
+        updateSearchBar()
+    }
+
+    /// The custom screen on top, while keys are its to take: not under the action panel or a
+    /// confirmation, and not while an action runs.
+    private var customScreenTakingKeys: ActiveScreen? {
+        guard let screen = topScreen, screen.spec.intentHandler != nil else { return nil }
+        let isCovered = state.actionPanel != nil || state.confirmation != nil
+        if isCovered || state.top.actionInFlight { return nil }
+        return screen
+    }
+
+    /// Whether a custom screen gets the first say on the intent. Only what a key press means
+    /// is offered. Text changes reach a screen through its `ScreenContext`, and what the app
+    /// reports back to the reducer is not a screen's to stop.
+    private static func isOfferedToScreens(_ intent: LauncherIntent) -> Bool {
+        switch intent {
+        case .moveSelection, .activateIndex, .performPrimary, .tabComplete, .back, .escape:
+            return true
+        case .willShow, .didHide, .queryChanged, .performAction, .toggleActionPanel,
+            .openSettings, .push, .resultsArrived, .screenRowsChanged, .actionPanelRowsChanged,
+            .askConfirmation, .actionStarted, .actionFinished:
+            return false
         }
     }
 
@@ -107,13 +233,23 @@ final class LauncherModel {
             // nothing, unless a newer search replaces this one first. The reducer counts on
             // that: a Return pressed ahead of the results waits for them.
             search.update(query: query, generation: generation)
+        case .forwardQuery(let text):
+            topScreen?.context.receiveSearchText(text)
         case .perform(let action, let item):
             perform(action, on: item)
         case .cancelAction:
             actionTask?.cancel()
+        case .showScreen(let request):
+            show(request)
+        case .popScreen:
+            let screen = screens.removeLast()
+            screen.context.close()
         case .hide:
             shell?.hide()
         case .focusSearchField:
+            // The screens of the last session are gone by now. A field that one of them hid
+            // has to be back before it can take the focus.
+            updateSearchBar()
             shell?.focusSearchField()
         case .scrollTo(let item):
             let previousSerial = scrollRequest?.serial ?? 0
@@ -121,9 +257,9 @@ final class LauncherModel {
             announceSelection()
         case .openSettings:
             shell?.openSettings()
-        case .forwardQuery, .showScreen, .popScreen:
-            // Unreachable until something can push a screen.
-            break
+        case .answerConfirmation(let answer):
+            confirmationAnswer?.resume(returning: answer)
+            confirmationAnswer = nil
         }
     }
 
@@ -155,71 +291,205 @@ final class LauncherModel {
         guard newResults.generation == state.generation else { return }
         results = newResults
 
-        // In displayed order, across the sections: the selection moves through all of them.
-        var rows: [LauncherState.Row] = []
-        for section in newResults.sections {
-            for row in section.rows {
-                rows.append(LauncherState.Row(row.item))
-            }
-        }
+        let rows = Self.rows(of: newResults.sections)
         apply(.resultsArrived(rows: rows, generation: newResults.generation))
         shell?.resultsDidCommit()
     }
 
-    // MARK: Actions
+    /// The rows of every section in displayed order: the selection moves through all of them.
+    private static func rows(of sections: [ResultSection]) -> [LauncherState.Row] {
+        var rows: [LauncherState.Row] = []
+        for section in sections {
+            for row in section.rows {
+                rows.append(LauncherState.Row(row.item))
+            }
+        }
+        return rows
+    }
 
-    private func perform(_ actionID: ActionID, on itemID: ItemID?) {
-        // An action without an item belongs to a screen, and there are no screens yet.
-        guard let itemID, let item = item(withID: itemID) else { return }
-        guard let action = item.actions.first(where: { $0.id == actionID }) else { return }
+    // MARK: Screens
 
-        // The confirmation view and `PermissionCenter` arrive with milestone 3. Until then an
-        // action that asks for either does not run: nothing destructive may go ahead without
-        // its confirmation.
-        if action.confirmation != nil || !action.requiredPermissions.isEmpty {
+    private func show(_ request: ScreenRequest) {
+        // A screen starts with an empty search field, and that is the query its actions see.
+        let actionContext = LauncherActionContext(query: "", model: self)
+        let context = LauncherScreenContext(
+            request: request, model: self, actionContext: actionContext)
+
+        guard let spec = screenRegistry.makeScreen(request, context: context) else {
+            // The reducer has pushed a frame for the request already, and `screens` has to
+            // keep step with its stack. So a request that nobody answers gets a screen that
+            // says so.
             Log.launcher.error(
                 """
-                Did not run the action \(actionID.rawValue, privacy: .public): it needs a \
-                confirmation or a permission, and the launcher cannot ask for either yet
+                No feature has the screen \(request.screen, privacy: .public) of \
+                \(request.feature.rawValue, privacy: .public)
                 """)
+            screens.append(ActiveScreen(spec: .unavailable, context: context))
             return
         }
+        screens.append(ActiveScreen(spec: spec, context: context))
+        // A list screen usually sets its first rows while it is being built, which is before
+        // it was on top.
+        deliverRowsOfTopScreen()
+    }
 
+    /// Hands the rows of the list screen on top to the reducer. A screen's rows only reach the
+    /// reducer while the screen is on top, so this runs for rows that were set when it was
+    /// not: before it was pushed, and under the screens that have since been popped.
+    private func deliverRowsOfTopScreen() {
+        guard let context = topScreen?.context, let query = context.answeredQuery else { return }
+        apply(.screenRowsChanged(Self.rows(of: context.sections), query: query))
+    }
+
+    private func isOnTop(_ context: LauncherScreenContext) -> Bool {
+        topScreen?.context === context
+    }
+
+    /// Whether the user is looking at the screen.
+    func isShowing(_ context: LauncherScreenContext) -> Bool {
+        isOnTop(context) && shell?.isLauncherVisible == true
+    }
+
+    func screen(
+        _ context: LauncherScreenContext, didAnswer query: String,
+        with sections: [ResultSection]
+    ) {
+        if isOnTop(context) {
+            apply(.screenRowsChanged(Self.rows(of: sections), query: query))
+        }
+    }
+
+    func screenDidSetActions(_ context: LauncherScreenContext) {
+        // The panel may be open on the actions that were just replaced.
+        if isOnTop(context) {
+            syncActionPanelRows()
+        }
+    }
+
+    func screenDidChangeSearchBar(_ context: LauncherScreenContext) {
+        if isOnTop(context) {
+            updateSearchBar()
+        }
+    }
+
+    func screen(_ context: LauncherScreenContext, wantsSearchText text: String) {
+        // While the action panel is open the field holds its filter, which is not the
+        // screen's to change.
+        guard isOnTop(context), state.actionPanel == nil else { return }
+        apply(.queryChanged(text))
+    }
+
+    private func updateSearchBar() {
+        let appearance = currentSearchBar()
+        if appearance == searchBar { return }
+        searchBar = appearance
+        shell?.setSearchBar(appearance)
+    }
+
+    private func currentSearchBar() -> SearchBarAppearance {
+        let title = topScreen?.spec.title
+        // The panel's filter needs the field, also on a screen that hides it.
+        if state.actionPanel != nil {
+            return SearchBarAppearance(
+                placeholder: String(localized: "Search for actions…"), isFieldHidden: false,
+                screenTitle: title)
+        }
+        guard let screen = topScreen else { return Self.rootSearchBar }
+
+        let mode = screen.context.searchBarMode ?? screen.spec.searchBar
+        switch mode {
+        case .hidden:
+            return SearchBarAppearance(placeholder: "", isFieldHidden: true, screenTitle: title)
+        case .filter(let placeholder), .input(let placeholder):
+            return SearchBarAppearance(
+                placeholder: placeholder, isFieldHidden: false, screenTitle: title)
+        }
+    }
+
+    // MARK: Action panel
+
+    /// Tells the reducer which actions the open panel lists for its filter. The reducer owns
+    /// the selection among them; which actions match is decided here, where the actions are.
+    private func syncActionPanelRows() {
+        guard let panel = state.actionPanel else { return }
+        let matching = ActionPanelFilter.actions(currentActions, matching: panel.filter)
+        let ids = matching.map(\.id)
+
+        // A new filter clears the panel's selection, and the rows that answer it select their
+        // first action. So rows that are the same as before still have to be sent then.
+        let needsSelection = panel.selection == nil && !ids.isEmpty
+        if ids != panel.rows || needsSelection {
+            apply(.actionPanelRowsChanged(ids))
+        }
+    }
+
+    // MARK: Actions
+
+    private func target(of actionID: ActionID, on itemID: ItemID?) -> ActionTarget? {
+        if let itemID {
+            guard let item = item(withID: itemID) else { return nil }
+            guard let action = item.actions.first(where: { $0.id == actionID }) else { return nil }
+            return ActionTarget(action: action, item: item)
+        }
+        // An action without an item belongs to the screen on top.
+        let screenActions = topScreen?.context.screenActions ?? []
+        guard let action = screenActions.first(where: { $0.id == actionID }) else { return nil }
+        return ActionTarget(action: action, item: nil)
+    }
+
+    private func perform(_ actionID: ActionID, on itemID: ItemID?) {
+        guard let target = target(of: actionID, on: itemID) else { return }
         let query = state.top.query
-        recordPick(of: item.id, query: query)
+        let context = LauncherActionContext(query: query, model: self)
 
         // The frame has to wait for the action before anything here can suspend, so that a
-        // second Return does not start it again. Applying an intent from inside an effect is
-        // fine at this point: the reducer has returned, and `.perform` is the last effect of
-        // its list.
+        // second Return does not start it again. That covers the confirmation and the
+        // permission check too, which come before the action itself. Applying an intent from
+        // inside an effect is fine at this point: the reducer has returned, and `.perform` is
+        // the last effect of its list.
         apply(.actionStarted)
         let serial = state.actionSerial
-        let context = LauncherActionContext(query: query, shell: shell)
 
         actionTask = Task {
-            let outcome: ActionOutcome
-            do {
-                outcome = try await action.perform(context)
-            } catch {
-                // An action that stops because Esc cancelled it has not failed.
-                let wasCancelled = error is CancellationError || Task.isCancelled
-                if !wasCancelled {
-                    // Milestone 3 shows the error's description in the HUD as well, with the
-                    // launcher still open. Until then this line is the only trace of a failure,
-                    // so the error's domain and code are public. Its description can name a
-                    // file and stays private.
-                    let nsError = error as NSError
-                    Log.launcher.error(
-                        """
-                        The action \(actionID.rawValue, privacy: .public) failed with \
-                        \(nsError.domain, privacy: .public) \(nsError.code, privacy: .public): \
-                        \(error)
-                        """)
+            // The steps from the confirmation to the outcome are Core's (§4.1.4).
+            let ending = await ActionRunner.run(
+                target.action, context: context, permissions: permissions
+            ) {
+                // Picks are counted for the items of root search and of list screens. A
+                // screen's own action has no item to count.
+                if let item = target.item {
+                    recordPick(of: item.id, query: query)
                 }
+            }
+
+            let outcome: ActionOutcome
+            switch ending {
+            case .outcome(let actionOutcome):
+                outcome = actionOutcome
+            case .failure(let error):
+                report(error, from: target.action)
                 outcome = .keepOpen
             }
             apply(.actionFinished(outcome, serial: serial))
+            // After the launcher has closed, which is what the outcome asks for. The message
+            // is shown even when the outcome came too late to navigate: the action did run.
+            if case .showHUD(let text) = outcome {
+                hud.show(text)
+            }
         }
+    }
+
+    /// Shows the error in the HUD, with the launcher still open, and logs it.
+    private func report(_ error: any Error, from action: ActionDescriptor) {
+        // The error's domain and code are public. Its description can name a file and stays
+        // private.
+        let nsError = error as NSError
+        Log.launcher.error(
+            """
+            The action \(action.id.rawValue, privacy: .public) failed with \
+            \(nsError.domain, privacy: .public) \(nsError.code, privacy: .public): \(error)
+            """)
+        hud.show(error.localizedDescription)
     }
 
     /// Counts the pick for ranking (docs/DESIGN.md §4.2.7).
@@ -234,5 +504,42 @@ final class LauncherModel {
                 Log.storage.error("Could not store a pick: \(error)")
             }
         }
+    }
+
+    // MARK: For actions
+
+    func showHUD(_ text: String) {
+        hud.show(text)
+    }
+
+    /// Asks the user in the panel and waits for Return or Esc (§4.1.6).
+    func confirm(_ confirmation: Confirmation) async -> Bool {
+        // A panel that is not on screen cannot ask, and what cannot be confirmed does not
+        // happen.
+        guard shell?.isLauncherVisible == true else { return false }
+
+        return await withCheckedContinuation { continuation in
+            // In this order: a question that is still up is answered with no by this intent,
+            // and that answer belongs to whoever is in `confirmationAnswer` now.
+            apply(.askConfirmation(confirmation))
+            confirmationAnswer = continuation
+
+            var spoken = confirmation.title
+            if let message = confirmation.message {
+                spoken += " " + message
+            }
+            AccessibilityNotification.Announcement(spoken).post()
+        }
+    }
+}
+
+extension ScreenSpec {
+    /// What is shown for a request that no feature answers. Esc leaves it like any screen.
+    fileprivate static var unavailable: ScreenSpec {
+        let message = Text("This screen is not available.")
+            .font(.system(size: 15, weight: .medium))
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        return .custom(title: String(localized: "Not Available"), searchBar: .hidden, view: message)
     }
 }

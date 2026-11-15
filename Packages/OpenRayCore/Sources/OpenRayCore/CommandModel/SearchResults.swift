@@ -3,6 +3,9 @@ public enum Placement: Sendable {
     case ranked
     /// Above the ranked results, whatever its rank.
     case pinnedTop
+    /// In the fallback section, which is shown only when the ranked section is empty. The item
+    /// acts on the whole query: "Search Google for …" (§4.2.9).
+    case fallback
 }
 
 /// An item as the results list shows it.

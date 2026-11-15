@@ -13,7 +13,7 @@ struct ResultsListView: View {
     private static let topID = "top"
 
     var body: some View {
-        let sections = model.results.sections
+        let sections = model.visibleSections
         let selection = model.state.top.selection
         ScrollViewReader { proxy in
             ScrollView {
@@ -42,6 +42,14 @@ struct ResultsListView: View {
                     proxy.scrollTo(Self.topID, anchor: .top)
                 } else {
                     proxy.scrollTo(request.item)
+                }
+            }
+            .onAppear {
+                // The list is built anew when the screen above it is popped, and a new list
+                // starts at the top. The scroll request made by the pop came before this view
+                // existed.
+                if let selection {
+                    proxy.scrollTo(selection)
                 }
             }
         }

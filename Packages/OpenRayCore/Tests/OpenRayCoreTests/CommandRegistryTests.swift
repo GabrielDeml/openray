@@ -117,9 +117,32 @@ import Testing
         let changes = changes(of: registry)
 
         commands.yield([app("Sleep", id: "example.sleep")])
-        await wait(for: ["Sleep"], in: registry, changes: changes)
         apps.yield([app("Safari", id: "com.apple.Safari")])
         await wait(for: ["Safari", "Sleep"], in: registry, changes: changes)
+    }
+
+    // A snapshot of half the sources would list "Quit Safari" where Safari is about to be.
+    @Test func nothingIsPublishedUntilEverySourceHasReported() async {
+        let apps = ManualSource("apps")
+        let commands = ManualSource("commands")
+        let registry = CommandRegistry(sources: [apps, commands])
+        var publishedTitles: [[String]] = []
+        let (changes, continuation) = AsyncStream.makeStream(of: Void.self)
+        registry.onChange = { [weak registry] in
+            if let registry {
+                publishedTitles.append(registry.snapshot.entries.map(\.item.title))
+            }
+            continuation.yield()
+        }
+        #expect(!registry.isReady)
+
+        commands.yield([app("Quit Safari", id: "example.quit")])
+        apps.yield([app("Safari", id: "com.apple.Safari")])
+        await wait(for: ["Safari", "Quit Safari"], in: registry, changes: changes)
+
+        // The commands were there first, and still no snapshot was made of them alone.
+        #expect(publishedTitles == [["Safari", "Quit Safari"]])
+        #expect(registry.isReady)
     }
 
     @Test func ofTwoItemsWithOneIDTheEarlierSourcesItemIsKept() async {
@@ -129,7 +152,6 @@ import Testing
         let changes = changes(of: registry)
 
         second.yield([app("Safari from the second", id: "com.apple.Safari")])
-        await wait(for: ["Safari from the second"], in: registry, changes: changes)
         first.yield([app("Safari from the first", id: "com.apple.Safari")])
         await wait(for: ["Safari from the first"], in: registry, changes: changes)
 
@@ -178,6 +200,48 @@ import Testing
         }
 
         #expect(publishedCounts == [1, 2_001])
+    }
+
+    // MARK: Overrides
+
+    @Test func registryAppliesTheStoresOverridesAndFollowsItsChanges() async throws {
+        let store = CommandStore(database: try AppDatabase.inMemory())
+        let safari = ItemID.app(bundleID: "com.apple.Safari")
+        try await store.updateOverride(for: safari) { override in override.hidden = true }
+        let apps = ManualSource("apps")
+        let registry = CommandRegistry(sources: [apps], commands: store)
+        let changes = changes(of: registry)
+
+        apps.yield([app("Safari", id: "com.apple.Safari"), app("Notes", id: "com.apple.Notes")])
+        await wait(for: ["Notes"], in: registry, changes: changes)
+
+        // What the sources yielded stays available as it came, for Settings.
+        #expect(registry.items.map(\.title) == ["Safari", "Notes"])
+        #expect(registry.overrides.overrides[safari]?.hidden == true)
+
+        try await store.updateOverride(for: safari) { override in override = ItemOverride() }
+        await wait(for: ["Safari", "Notes"], in: registry, changes: changes)
+
+        try await store.setAliases(["web"], for: safari)
+        for await _ in changes {
+            if registry.overrides.aliases["web"] == safari { break }
+        }
+        let results = await registry.snapshot.rank(
+            query: SearchQuery("web"), usage: UsageSnapshot(), now: .now)
+        #expect(results?.rows.first?.scored.placement == .pinnedTop)
+    }
+
+    @Test func itemsListsEachIDOnceInSourceOrder() async {
+        let apps = ManualSource("apps")
+        let commands = ManualSource("commands")
+        let registry = CommandRegistry(sources: [apps, commands])
+        let changes = changes(of: registry)
+
+        apps.yield([app("Safari", id: "com.apple.Safari")])
+        commands.yield([app("Safari Copy", id: "com.apple.Safari"), app("Sleep", id: "sleep")])
+        await wait(for: ["Safari", "Sleep"], in: registry, changes: changes)
+
+        #expect(registry.items.map(\.title) == ["Safari", "Sleep"])
     }
 
     @Test func registryThatGoesAwayStopsListeningToItsSources() async {

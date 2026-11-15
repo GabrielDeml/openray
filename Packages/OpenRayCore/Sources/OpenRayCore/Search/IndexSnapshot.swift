@@ -13,28 +13,42 @@ struct IndexSnapshot: Sendable {
         /// Whether this is the item's title. Highlights are offsets into the title, so only a
         /// match against this name can give any.
         var isTitle: Bool
+        /// Whether the user gave the item this name. A query that equals an alias pins the item
+        /// above everything else (§4.2.9).
+        var isAlias = false
     }
 
     struct Entry: Sendable {
         var item: SearchItem
         /// The title first, then the alternate names, each followed by its transliteration when
-        /// it has one.
+        /// it has one, then the user's aliases.
         var names: [Name]
     }
 
     let entries: [Entry]
     /// How many items were left out because an earlier item had the same ID.
     let duplicateIDCount: Int
+    /// How many action shortcuts were removed because the launcher keeps the chord for itself.
+    let reservedShortcutCount: Int
 
-    static let empty = IndexSnapshot(entries: [], duplicateIDCount: 0)
+    static let empty = IndexSnapshot(entries: [], duplicateIDCount: 0, reservedShortcutCount: 0)
 
     /// What a transliterated name's weight is multiplied by.
     static let transliterationWeight = 0.9
+    /// The weight of an alias: just under the item's own names, so that an app called "Web"
+    /// stays ahead of an app with the alias "web".
+    static let aliasWeight = 0.95
 
     /// Folds every name of every item. Of items that share an ID only the first is kept: the
     /// results list tells its rows apart by ID.
+    ///
+    /// The user's overrides are applied here: an item that is hidden or disabled is left out,
+    /// and an item's aliases become names it is found by. Action shortcuts that collide with
+    /// one of the launcher's own chords are removed (§4.1.3).
     @concurrent
-    static func build(from items: [SearchItem]) async -> IndexSnapshot {
+    static func build(
+        from items: [SearchItem], overrides: CommandOverrides = CommandOverrides()
+    ) async -> IndexSnapshot {
         // A build that was overtaken still runs to its end, so two can overlap. An ID of its
         // own keeps the two ends of each interval together.
         let signposter = Signposts.signposter
@@ -42,9 +56,15 @@ struct IndexSnapshot: Sendable {
             Signposts.indexBuild, id: signposter.makeSignpostID(), "\(items.count) items")
         defer { signposter.endInterval(Signposts.indexBuild, interval) }
 
+        var aliasesByItem: [ItemID: [String]] = [:]
+        for (alias, id) in overrides.aliases {
+            aliasesByItem[id, default: []].append(alias)
+        }
+
         var entries: [Entry] = []
         var seenIDs: Set<ItemID> = []
         var duplicateIDCount = 0
+        var reservedShortcutCount = 0
 
         for item in items {
             let isNewID = seenIDs.insert(item.id).inserted
@@ -52,16 +72,53 @@ struct IndexSnapshot: Sendable {
                 duplicateIDCount += 1
                 continue
             }
-            entries.append(Entry(item: item, names: names(of: item)))
+            if !overrides.isSearchable(item.id) { continue }
+
+            var indexedItem = item
+            reservedShortcutCount += removeReservedShortcuts(from: &indexedItem)
+            let names = names(of: indexedItem, aliases: aliasesByItem[item.id] ?? [])
+            entries.append(Entry(item: indexedItem, names: names))
         }
-        return IndexSnapshot(entries: entries, duplicateIDCount: duplicateIDCount)
+        return IndexSnapshot(
+            entries: entries, duplicateIDCount: duplicateIDCount,
+            reservedShortcutCount: reservedShortcutCount)
     }
 
-    private static func names(of item: SearchItem) -> [Name] {
+    /// - Returns: How many shortcuts were removed.
+    private static func removeReservedShortcuts(from item: inout SearchItem) -> Int {
+        let router = KeyRouter()
+        var removedCount = 0
+        for index in item.actions.indices {
+            guard let shortcut = item.actions[index].shortcut else { continue }
+            if router.reserves(shortcut) {
+                item.actions[index].shortcut = nil
+                removedCount += 1
+            }
+        }
+        return removedCount
+    }
+
+    private static func names(of item: SearchItem, aliases: [String]) -> [Name] {
         var names: [Name] = []
         add(item.title, weight: 1, isTitle: true, to: &names)
         for alternate in item.alternateNames {
             add(alternate.text, weight: alternate.weight, isTitle: false, to: &names)
+        }
+        // Sorted, so that two builds from the same aliases give the same names in the same order.
+        for alias in aliases.sorted() {
+            let normalized = NormalizedName(alias)
+            let ownNameIndex = names.firstIndex { name in
+                name.normalized.scalars == normalized.scalars
+            }
+            if let ownNameIndex {
+                // The alias repeats one of the item's own names. That name keeps its weight and
+                // now pins the item as an alias does.
+                names[ownNameIndex].isAlias = true
+            } else {
+                let name = Name(
+                    normalized: normalized, weight: aliasWeight, isTitle: false, isAlias: true)
+                names.append(name)
+            }
         }
         return names
     }

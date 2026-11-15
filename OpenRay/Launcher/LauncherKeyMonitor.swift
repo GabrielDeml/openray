@@ -4,7 +4,7 @@ import OpenRayCore
 /// The one place the launcher sees key presses: a local monitor, installed while the panel is
 /// key, that asks `KeyRouter` what each key means. It runs before key-equivalent dispatch, so ⌘
 /// chords and plain keys take the same path. Keys the router declines go on to the field editor,
-/// unless it says to swallow them, as it does for ⌘Q.
+/// unless it says to swallow them, as it does for ⌘Q and for every key under a confirmation.
 final class LauncherKeyMonitor {
     private let panel: NSPanel
     private let searchField: ShellSearchField
@@ -45,10 +45,12 @@ final class LauncherKeyMonitor {
             characters: event.charactersIgnoringModifiers)
         let context = KeyRouter.Context(
             state: model.state,
-            selectedItemShortcuts: model.selectedItemShortcuts,
-            hasMarkedText: searchField.hasMarkedText)
+            selectedItemShortcuts: model.currentShortcuts,
+            hasMarkedText: searchField.hasMarkedText,
+            searchFieldHidden: model.searchBar.isFieldHidden,
+            keyIsRepeating: event.isARepeat)
         guard let intent = router.intent(for: chord, in: context) else {
-            return router.swallows(chord)
+            return router.swallows(chord, in: context)
         }
         model.apply(intent)
         return true

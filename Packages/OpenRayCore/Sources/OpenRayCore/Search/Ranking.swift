@@ -118,8 +118,10 @@ extension IndexSnapshot {
             }
             guard let quality = match.quality else { continue }
 
+            // The item the user gave exactly this name goes above everything else (§4.2.9).
+            let placement: Placement = match.equalsAlias ? .pinnedTop : .ranked
             let scored = ScoredItem(
-                item: entry.item, quality: quality, placement: .ranked,
+                item: entry.item, quality: quality, placement: placement,
                 highlights: match.titleHighlights)
             rows.append(RankedRow.ranked(scored, query: query, usage: usage, now: now))
         }
@@ -137,6 +139,8 @@ extension IndexSnapshot {
         /// Where the query sits in the title. Empty when the entry was only found by another
         /// name: offsets into a transliteration mean nothing in the title.
         var titleHighlights: [Range<Int>] = []
+        /// Whether the query is one of the item's aliases, letter for letter.
+        var equalsAlias = false
     }
 
     private func bestMatch(of query: [Unicode.Scalar], in entry: Entry) -> EntryMatch {
@@ -146,7 +150,13 @@ extension IndexSnapshot {
             best.isSurvivor = true
 
             guard let match = FuzzyMatcher.match(query, in: name.normalized) else { continue }
-            let weighted = match.quality * name.weight
+            var weighted = match.quality * name.weight
+            if name.isAlias && name.normalized.scalars == query {
+                // An alias typed in full is as good as a match gets, whatever aliases weigh
+                // otherwise.
+                best.equalsAlias = true
+                weighted = 1
+            }
             let bestSoFar = best.quality ?? 0
             if weighted > bestSoFar {
                 best.quality = weighted

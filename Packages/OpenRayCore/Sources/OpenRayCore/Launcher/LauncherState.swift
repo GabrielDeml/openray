@@ -37,10 +37,13 @@ public struct LauncherState: Equatable, Sendable {
         /// then `rows` still answer the previous query. The rows that answer the query select
         /// their first row, where rows that merely update keep the selection.
         ///
-        /// For root search the rows that clear it are known to answer the query, by their
-        /// generation. A screen's rows do not say which query they answer, so on a screen the
-        /// flag is a guess: good enough to choose the selection, and used for nothing else.
+        /// The rows that clear it are known to answer the query: root results by their
+        /// generation, a screen's rows by the query they name.
         var waitsForRows = false
+        /// Whether rows have ever arrived for this frame. A list screen answers every query and
+        /// a custom screen none, and the reducer is not told which kind a screen is. It learns
+        /// it here, from the first rows. Always true for root search.
+        var answersQueries = false
 
         public var actionInFlight: Bool { runningAction != nil }
 
@@ -71,8 +74,7 @@ public struct LauncherState: Equatable, Sendable {
         }
     }
 
-    /// Return, ⌘1 to ⌘9 or Tab, pressed at the root before the results for the query had
-    /// arrived.
+    /// Return, ⌘1 to ⌘9 or Tab, pressed before the rows for the query had arrived.
     private enum PendingActivation: Equatable, Sendable {
         /// Return: perform the primary action of the selected row.
         case selectedRow
@@ -86,21 +88,27 @@ public struct LauncherState: Equatable, Sendable {
     public private(set) var stack: [Frame]
     /// `nil` while the action panel is closed.
     public private(set) var actionPanel: ActionPanelState?
+    /// The question the panel is asking, shown over everything else. While it is up, Return
+    /// and Esc answer it and nothing else the user does gets through.
+    public private(set) var confirmation: Confirmation?
     /// Identifies the root query that results must answer. The only generation counter in the app.
     public private(set) var generation: UInt64
     /// Numbers the actions started. Its value after `.actionStarted` names that action in
     /// `.actionFinished`, so an outcome that arrives late is never taken for another action's.
     public private(set) var actionSerial: UInt64
-    /// What the user asked for while root search still showed the rows of its previous query.
-    /// It is performed on the results for the current query when they arrive. `apply(_:)` says
+    /// What the user asked for while the top frame still showed the rows of its previous query.
+    /// It is performed on the rows for the current query when they arrive. `apply(_:)` says
     /// what drops it before then.
     private var pendingActivation: PendingActivation?
     /// The screen Tab opens at the root when the selected item has no Tab target of its own.
     public var tabFallback: ScreenRequest?
 
     public init() {
-        stack = [Frame(screen: nil, query: "", rows: [], selection: nil)]
+        var root = Frame(screen: nil, query: "", rows: [], selection: nil)
+        root.answersQueries = true
+        stack = [root]
         actionPanel = nil
+        confirmation = nil
         generation = 0
         actionSerial = 0
         pendingActivation = nil
@@ -118,18 +126,49 @@ public struct LauncherState: Equatable, Sendable {
 
     private var topIndex: Int { stack.count - 1 }
 
-    /// Whether root search is on top and still shows the rows of its previous query. Return,
-    /// ⌘1 to ⌘9 and Tab then wait for the results (`pendingActivation`). An item's shortcut and
-    /// the action panel are ignored, because they name actions of the row that is on its way out.
+    /// Whether the top frame still shows the rows of its previous query. Return, ⌘1 to ⌘9 and
+    /// Tab then wait for the rows that answer the current one (`pendingActivation`). An item's
+    /// shortcut and the action panel are ignored, because they name actions of the row that is
+    /// on its way out.
     ///
-    /// A screen never counts as waiting, because its rows do not say which query they answer.
-    /// The reducer would take a late answer to an earlier query for the one it waits for, and
-    /// would wait for good on a screen whose answer went missing. On a screen, the rows shown
-    /// are acted on as they are.
-    private var rootAwaitsResults: Bool { depth == 0 && top.waitsForRows }
+    /// Root search and list screens answer every query. A custom screen is sent its queries
+    /// too but has no rows to answer with, so it never counts as waiting.
+    private var topAwaitsRows: Bool { top.waitsForRows && top.answersQueries }
 
     public mutating func apply(_ intent: LauncherIntent) -> [LauncherEffect] {
-        // A pending activation waits for the results of the query it was pressed for, and is
+        guard confirmation != nil else { return applyToLauncher(intent) }
+
+        // A confirmation is up. The two groups without an effect of their own are written out,
+        // without a `default`, so that a new intent has to be put in one of them.
+        switch intent {
+        case .performPrimary:
+            return answerConfirmation(true)
+        case .escape:
+            return answerConfirmation(false)
+        case .willShow, .didHide, .askConfirmation:
+            // The question goes away unanswered: the panel is gone, comes up fresh, or asks
+            // something else. That counts as no, and then the intent does what it always does.
+            return answerConfirmation(false) + applyToLauncher(intent)
+        case .moveSelection, .activateIndex, .performAction, .tabComplete, .toggleActionPanel,
+            .back, .openSettings, .push:
+            // Nothing happens behind the question.
+            return []
+        case .queryChanged, .resultsArrived, .screenRowsChanged, .actionPanelRowsChanged,
+            .actionStarted, .actionFinished:
+            // The app reporting what happened anyway. The key router keeps typing from the
+            // field while a confirmation is up; text that changes all the same, through the
+            // field's context menu, is followed so that the state and the field agree.
+            return applyToLauncher(intent)
+        }
+    }
+
+    private mutating func answerConfirmation(_ answer: Bool) -> [LauncherEffect] {
+        confirmation = nil
+        return [.answerConfirmation(answer)]
+    }
+
+    private mutating func applyToLauncher(_ intent: LauncherIntent) -> [LauncherEffect] {
+        // A pending activation waits for the rows of the query it was pressed for, and is
         // given up when anything else happens first. Both groups are written out, without a
         // `default`, so that a new intent has to be put in one of them.
         switch intent {
@@ -140,10 +179,11 @@ public struct LauncherState: Equatable, Sendable {
             break
         case .willShow, .didHide, .queryChanged, .moveSelection, .activateIndex, .performPrimary,
             .performAction, .tabComplete, .toggleActionPanel, .back, .escape, .openSettings, .push,
-            .actionStarted:
+            .actionStarted, .askConfirmation:
             // The user did something else before the results arrived, or the launcher went
             // away. `.actionStarted` is here because one action runs at a time, so an activation
-            // cannot wait behind it.
+            // cannot wait behind it, and `.askConfirmation` because nothing may start behind a
+            // question.
             pendingActivation = nil
         }
 
@@ -178,13 +218,19 @@ public struct LauncherState: Equatable, Sendable {
         case .resultsArrived(let rows, let generation):
             // Any other generation answers a query that has since changed.
             if generation != self.generation { return [] }
-            return rootResultsArrived(rows)
-        case .screenRowsChanged(let rows):
+            return rowsArrived(rows, forFrameAt: 0)
+        case .screenRowsChanged(let rows, let query):
             // Root search gets its rows from `.resultsArrived` only.
             if depth == 0 { return [] }
-            return setRows(rows, ofFrameAt: topIndex)
+            // Even rows that come too late say that this screen answers its queries.
+            stack[topIndex].answersQueries = true
+            if query != top.query { return [] }
+            return rowsArrived(rows, forFrameAt: topIndex)
         case .actionPanelRowsChanged(let rows):
             return setActionPanelRows(rows)
+        case .askConfirmation(let question):
+            confirmation = question
+            return []
         case .actionStarted:
             return actionStarted()
         case .actionFinished(let outcome, let serial):
@@ -255,15 +301,15 @@ extension LauncherState {
 // MARK: - Rows and selection
 
 extension LauncherState {
-    /// Sets the root's rows, then performs the activation that was waiting for them, if there
-    /// is one. The first results for a query use the activation up, also when they are empty:
+    /// Sets a frame's rows, then performs the activation that was waiting for them, if there
+    /// is one. The first rows for a query use the activation up, also when they are empty:
     /// rows that a slow source adds later only update the list.
-    private mutating func rootResultsArrived(_ rows: [Row]) -> [LauncherEffect] {
-        var effects = setRows(rows, ofFrameAt: 0)
+    private mutating func rowsArrived(_ rows: [Row], forFrameAt index: Int) -> [LauncherEffect] {
+        var effects = setRows(rows, ofFrameAt: index)
 
-        // An activation is only ever pending while root search is on top: everything that
-        // pushes a screen drops it. So what is performed below acts on the root frame.
-        guard let activation = pendingActivation else { return effects }
+        // An activation waits for the rows of the frame on top. Root results that arrive
+        // under a screen are not what it waits for.
+        guard index == topIndex, let activation = pendingActivation else { return effects }
         pendingActivation = nil
         switch activation {
         case .selectedRow:
@@ -374,7 +420,7 @@ extension LauncherState {
         if top.actionInFlight { return [] }
         // The rows on screen still answer the previous query. Return is meant for what the
         // current query finds, so it waits for those rows.
-        if rootAwaitsResults {
+        if topAwaitsRows {
             pendingActivation = .selectedRow
             return []
         }
@@ -385,11 +431,11 @@ extension LauncherState {
     /// One action runs at a time per frame; Esc cancels it.
     private mutating func perform(_ action: ActionID) -> [LauncherEffect] {
         if top.actionInFlight { return [] }
-        // Only an item's shortcut gets this far while root search waits; Return is held back
-        // in `performPrimary`. The shortcut names an action of the row that was selected when
-        // it was pressed, a row of the previous query. It cannot wait as Return does, because
-        // the rows on their way have actions of their own.
-        if rootAwaitsResults { return [] }
+        // Only an item's shortcut gets this far while the frame waits for its rows; Return is
+        // held back in `performPrimary`. The shortcut names an action of the row that was
+        // selected when it was pressed, a row of the previous query. It cannot wait as Return
+        // does, because the rows on their way have actions of their own.
+        if topAwaitsRows { return [] }
         actionPanel = nil
         return [.perform(action, on: top.selection)]
     }
@@ -400,7 +446,7 @@ extension LauncherState {
         let frame = top
         if frame.actionInFlight { return [] }
         // As with Return: the position is meant for the rows the current query finds.
-        if rootAwaitsResults {
+        if topAwaitsRows {
             pendingActivation = .row(at: position)
             return []
         }
@@ -426,7 +472,7 @@ extension LauncherState {
         }
         if top.actionInFlight { return [] }
         // The panel would open on a row of the previous query and list that row's actions.
-        if rootAwaitsResults { return [] }
+        if topAwaitsRows { return [] }
         // A screen has actions of its own. Root search has none, so there the panel needs a
         // selected item to list the actions of.
         if depth == 0 && top.selection == nil { return [] }
@@ -501,7 +547,7 @@ extension LauncherState {
         if actionPanel != nil || top.actionInFlight { return [] }
         // As with Return: Tab is meant for the row the current query finds, which may have a
         // Tab target where the row on screen has none.
-        if rootAwaitsResults {
+        if topAwaitsRows {
             pendingActivation = .tab
             return []
         }
@@ -524,7 +570,8 @@ extension LauncherState {
         return pop(1)
     }
 
-    /// The Esc ladder: each press undoes the innermost thing.
+    /// The Esc ladder: each press undoes the innermost thing. Its first rung is not here: a
+    /// confirmation that is up takes Esc before anything else, in `apply(_:)`.
     private mutating func escape() -> [LauncherEffect] {
         if top.actionInFlight {
             stack[topIndex].runningAction = nil

@@ -19,6 +19,15 @@ public struct NameVariant: Sendable, Hashable {
         self.text = text
         self.weight = weight
     }
+
+    /// The weight of a keyword: a word an item is also found by without being called that,
+    /// such as "Reboot" for Restart. Just under 1, so that an item whose own name matches the
+    /// query stays ahead of one that only has it as a keyword.
+    public static let keywordWeight = 0.95
+
+    public static func keyword(_ text: String) -> NameVariant {
+        NameVariant(text: text, weight: keywordWeight)
+    }
 }
 
 /// One thing the launcher can list and act on.

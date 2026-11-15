@@ -8,8 +8,12 @@ import Testing
 @Suite final class AppIndexSourceTests: Sendable {
     /// Without a slash at the end, like every path the index reports.
     private let directoryPath: String
+    /// What a source is given when the test is not about overrides or about user folders.
+    private let commands: CommandStore
+    private let preferences = InMemoryPreferencesStore()
 
     init() throws {
+        commands = CommandStore(database: try AppDatabase.inMemory())
         directoryPath = NSTemporaryDirectory() + "OpenRayTests-\(UUID().uuidString)"
         try FileManager.default.createDirectory(
             atPath: directoryPath, withIntermediateDirectories: true)
@@ -70,14 +74,15 @@ import Testing
 
     private func source(
         roots: [String], preferredLanguages: [String] = ["en"],
-        openApp: @escaping @MainActor @Sendable (URL) async throws -> Void = { _ in }
+        host: any AppActionHost = IdleHost(), preferences: (any PreferencesStore)? = nil
     ) -> AppIndexSource {
         var rootURLs: [URL] = []
         for root in roots {
             rootURLs.append(URL(filePath: path(root), directoryHint: .isDirectory))
         }
         return AppIndexSource(
-            roots: rootURLs, preferredLanguages: preferredLanguages, openApp: openApp)
+            roots: rootURLs, preferredLanguages: preferredLanguages, host: host,
+            commands: commands, preferences: preferences ?? self.preferences)
     }
 
     /// One scan of the roots, without the stream and without watching for changes.
@@ -106,7 +111,7 @@ import Testing
 
     // MARK: Items and IDs
 
-    @Test func appBecomesAnItemWithItsBundleIDAndOneAction() async throws {
+    @Test func appBecomesAnItemWithItsBundleIDAndItsActions() async throws {
         try makeApp("Apps/Lantern.app", bundleID: "com.example.lantern")
 
         let items = await items(inRoots: ["Apps"])
@@ -120,9 +125,12 @@ import Testing
         #expect(item.alternateNames == [])
         #expect(item.icon == .file(path: path("Apps/Lantern.app")))
         #expect(item.kindLabel == "Application")
-        #expect(item.actions.count == 1)
+        // Open is first, which makes it what Return runs.
+        #expect(
+            item.actions.map(\.title) == [
+                "Open", "Show in Finder", "Quit", "Add Alias…", "Hide from Root Search",
+            ])
         #expect(item.actions.first?.id == ActionID(rawValue: "open"))
-        #expect(item.actions.first?.title == "Open")
     }
 
     // Finder's own type is "FNDR" and a Safari web app's is "AAPL". Like Finder, the index goes
@@ -559,64 +567,187 @@ import Testing
         #expect(items.first?.title == "Laterne")
     }
 
-    // MARK: Opening
+    // MARK: Actions
 
-    private enum Event: Equatable {
-        case closedLauncher
-        case opened(URL)
-    }
-
-    /// What the open action did, in order. The context and the injected closure both write here.
-    @MainActor private final class EventLog {
-        var events: [Event] = []
-    }
-
-    @MainActor private final class RecordingContext: ActionContext {
-        let previousApp: AppRef? = nil
-        let query = "lan"
-        private let log: EventLog
-
-        init(log: EventLog) {
-            self.log = log
-        }
-
-        func closeLauncher() { log.events.append(.closedLauncher) }
-        func showHUD(_ text: String) {}
-        func confirm(_ confirmation: OpenRayCore.Confirmation) async -> Bool { true }
-        func copy(_ content: PasteContent) {}
-        func paste(_ content: PasteContent) async -> PasteResult { .copiedOnly(.noTarget) }
+    /// A host for the tests that are not about actions.
+    @MainActor private final class IdleHost: AppActionHost {
+        func openApp(at url: URL) async throws {}
+        func showInFinder(_ url: URL) {}
+        func quitApp(at url: URL) -> Bool { false }
+        func showAliasSettings(for item: ItemID) {}
     }
 
     private struct LaunchFailure: Error {}
 
-    @MainActor @Test func openActionClosesTheLauncherAndThenOpensTheApp() async throws {
-        try makeApp("Apps/Lantern.app", bundleID: "com.example.lantern")
-        let log = EventLog()
-        let source = source(roots: ["Apps"]) { url in
-            log.events.append(.opened(url))
+    /// Records what the actions asked for, in order, together with what they asked of the
+    /// launcher through `context`.
+    @MainActor private final class RecordingHost: AppActionHost {
+        let context = FakeActionContext(query: "lan")
+        private(set) var events: [String] = []
+        var openFails = false
+        var appIsRunning = true
+
+        /// The launcher has to be closed before a window opens outside the panel.
+        private func record(_ event: String) {
+            let launcher = context.closeLauncherCount > 0 ? "closed" : "open"
+            events.append("\(event), launcher \(launcher)")
         }
+
+        func openApp(at url: URL) async throws {
+            if openFails { throw LaunchFailure() }
+            record("open \(url.lastPathComponent)")
+        }
+
+        func showInFinder(_ url: URL) {
+            record("reveal \(url.lastPathComponent)")
+        }
+
+        func quitApp(at url: URL) -> Bool {
+            record("quit \(url.lastPathComponent)")
+            return appIsRunning
+        }
+
+        func showAliasSettings(for item: ItemID) {
+            record("alias \(item.rawValue)")
+        }
+    }
+
+    /// The action with this ID of the one app the tests below index.
+    private func lanternAction(
+        _ id: String, host: any AppActionHost
+    ) async throws -> ActionDescriptor {
+        try makeApp("Apps/Lantern.app", bundleID: "com.example.lantern")
+        let source = source(roots: ["Apps"], host: host)
         let items = await source.items(from: source.scanAllRoots())
-        let open = try #require(items.first?.actions.first)
+        let item = try #require(items.first)
+        return try #require(item.actions.first { $0.id == ActionID(rawValue: id) })
+    }
 
-        let outcome = try await open.perform(RecordingContext(log: log))
+    @MainActor @Test func openActionClosesTheLauncherAndThenOpensTheApp() async throws {
+        let host = RecordingHost()
+        let open = try await lanternAction("open", host: host)
 
-        let appURL = URL(filePath: path("Apps/Lantern.app"), directoryHint: .isDirectory)
-        #expect(log.events == [.closedLauncher, .opened(appURL)])
+        let outcome = try await open.perform(host.context)
+
+        #expect(host.events == ["open Lantern.app, launcher closed"])
         #expect(outcome == .closeLauncher)
     }
 
     @MainActor @Test func openActionThrowsWhenTheAppCannotBeOpened() async throws {
-        try makeApp("Apps/Lantern.app", bundleID: "com.example.lantern")
-        let source = source(roots: ["Apps"]) { _ in
-            throw LaunchFailure()
-        }
-        let items = await source.items(from: source.scanAllRoots())
-        let open = try #require(items.first?.actions.first)
-        let context = RecordingContext(log: EventLog())
+        let host = RecordingHost()
+        host.openFails = true
+        let open = try await lanternAction("open", host: host)
 
         await #expect(throws: LaunchFailure.self) {
-            try await open.perform(context)
+            try await open.perform(host.context)
         }
+    }
+
+    @MainActor @Test func showInFinderClosesTheLauncherAndRevealsTheApp() async throws {
+        let host = RecordingHost()
+        let reveal = try await lanternAction("show-in-finder", host: host)
+
+        let outcome = try await reveal.perform(host.context)
+
+        #expect(host.events == ["reveal Lantern.app, launcher closed"])
+        #expect(outcome == .closeLauncher)
+    }
+
+    @MainActor @Test func quitAsksARunningAppToQuitAndCloses() async throws {
+        let host = RecordingHost()
+        let quit = try await lanternAction("quit", host: host)
+
+        let outcome = try await quit.perform(host.context)
+
+        #expect(host.events == ["quit Lantern.app, launcher open"])
+        #expect(outcome == .closeLauncher)
+        #expect(host.context.hudMessages.isEmpty)
+    }
+
+    @MainActor @Test func quitOfAnAppThatIsNotRunningSaysSoAndStays() async throws {
+        let host = RecordingHost()
+        host.appIsRunning = false
+        let quit = try await lanternAction("quit", host: host)
+
+        let outcome = try await quit.perform(host.context)
+
+        #expect(outcome == .keepOpen)
+        #expect(host.context.hudMessages == ["Lantern is not running"])
+    }
+
+    @MainActor @Test func addAliasOpensSettingsOnTheApp() async throws {
+        let host = RecordingHost()
+        let addAlias = try await lanternAction("add-alias", host: host)
+
+        let outcome = try await addAlias.perform(host.context)
+
+        #expect(host.events == ["alias app:com.example.lantern, launcher closed"])
+        #expect(outcome == .closeLauncher)
+    }
+
+    @MainActor @Test func hideWritesAnOverrideAndKeepsWhatElseWasStored() async throws {
+        let lantern = ItemID.app(bundleID: "com.example.lantern")
+        try await commands.updateOverride(for: lantern) { override in override.disabled = true }
+        let host = RecordingHost()
+        let hide = try await lanternAction("hide", host: host)
+
+        let outcome = try await hide.perform(host.context)
+
+        let stored = try await commands.snapshot().overrides[lantern]
+        #expect(stored == ItemOverride(hidden: true, disabled: true))
+        #expect(outcome == .keepOpen)
+        #expect(
+            host.context.hudMessages == ["Lantern is hidden. Settings › Commands brings it back."])
+    }
+
+    // MARK: User folders
+
+    @Test func foldersFromThePreferenceAreSearchedAfterTheRoots() async throws {
+        try makeApp("Apps/Lantern.app", bundleID: "com.example.lantern")
+        try makeApp("Tools/Compass.app", bundleID: "com.example.compass")
+        // A copy of an app that a root has: the root's copy keeps the bundle ID.
+        try makeApp("Tools/Lantern.app", bundleID: "com.example.lantern")
+        let preferences = InMemoryPreferencesStore()
+        preferences.set([path("Tools")], for: .appFolders)
+        let source = source(roots: ["Apps"], preferences: preferences)
+
+        let items = await source.items(from: source.scanAllRoots())
+
+        #expect(titles(of: items) == ["Lantern", "Compass", "Lantern"])
+        #expect(items[0].id == .app(bundleID: "com.example.lantern"))
+        #expect(items[2].id == .app(path: path("Tools/Lantern.app")))
+    }
+
+    // Two equal roots would be scanned twice, and a change would only ever reach the first.
+    @Test func folderThatIsARootAlreadyIsNotSearchedTwice() async throws {
+        try makeApp("Apps/Lantern.app", bundleID: "com.example.lantern")
+        let preferences = InMemoryPreferencesStore()
+        // With a slash at the end, as an open panel reports a folder.
+        preferences.set([path("Apps") + "/"], for: .appFolders)
+        let source = source(roots: ["Apps"], preferences: preferences)
+
+        let appsByRoot = await source.scanAllRoots()
+
+        #expect(appsByRoot.count == 1)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func addingAndRemovingAFolderIsFollowedWithoutARestart() async throws {
+        try makeApp("Apps/Lantern.app", bundleID: "com.example.lantern")
+        try makeApp("Tools/Compass.app", bundleID: "com.example.compass")
+        let preferences = InMemoryPreferencesStore()
+        let itemSets = source(roots: ["Apps"], preferences: preferences).indexedItems()
+        var iterator = itemSets.makeAsyncIterator()
+        let firstItems = try #require(await iterator.next())
+        #expect(titles(of: firstItems) == ["Lantern"])
+
+        preferences.set([path("Tools")], for: .appFolders)
+        let withFolder = try #require(await iterator.next())
+        #expect(titles(of: withFolder) == ["Lantern", "Compass"])
+
+        preferences.set([], for: .appFolders)
+        let withoutFolder = try #require(await iterator.next())
+        #expect(titles(of: withoutFolder) == ["Lantern"])
     }
 
     // MARK: Staying current

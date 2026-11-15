@@ -142,20 +142,21 @@ import Testing
     /// registry; `sources` follow it.
     private func makeSession(
         items: [SearchItem], sources: [any SearchSource] = [],
-        usage: any UsageStore = InMemoryUsageStore()
+        usage: any UsageStore = InMemoryUsageStore(), commands: CommandStore? = nil
     ) async -> (session: SearchSession, index: IndexSource) {
         let index = IndexSource()
-        let registry = CommandRegistry(sources: [index] + sources)
+        let registry = CommandRegistry(sources: [index] + sources, commands: commands)
 
         // The registry builds its snapshot in a task. This waits for it through `onChange`,
-        // which the session takes over afterwards.
+        // which the session takes over afterwards. With a store the registry may publish once
+        // before the items are in, so the wait is for the snapshot that holds them.
         let (changes, continuation) = AsyncStream.makeStream(of: Void.self)
         registry.onChange = {
             continuation.yield()
         }
         index.yield(items)
         for await _ in changes {
-            break
+            if registry.snapshot.entries.count == items.count { break }
         }
 
         let now = now
@@ -556,6 +557,217 @@ import Testing
         await search("saf", generation: 2, in: session)
         let extended = try await published.next()
         #expect(titles(in: extended, section: "results") == ["Safari"])
+    }
+
+    // MARK: Overrides
+
+    private func makeStore() throws -> CommandStore {
+        CommandStore(database: try AppDatabase.inMemory())
+    }
+
+    @Test func itemWhoseAliasIsTheQueryIsPinnedAboveWhatSourcesPin() async throws {
+        let store = try makeStore()
+        try await store.setAliases(["s"], for: .app(bundleID: "Notes"))
+        let answer = ScoredItem(item: app("Sum"), quality: 1, placement: .pinnedTop)
+        let calculator = QuerySource("calculator", latency: .inline) { _ in [answer] }
+        let (session, _) = await makeSession(
+            items: apps("Safari", "Notes"), sources: [calculator], commands: store)
+        let published = Published(by: session)
+
+        await search("s", generation: 1, in: session)
+
+        let results = try #require(published.all.first)
+        #expect(sectionIDs(of: results) == ["pinned", "results"])
+        #expect(titles(in: results, section: "pinned") == ["Notes", "Sum"])
+        // The pinned item is not listed a second time among the ranked rows.
+        #expect(titles(in: results, section: "results") == ["Safari"])
+    }
+
+    @Test func rowsOfHiddenAndDisabledItemsAreDroppedFromWhatSourcesReturn() async throws {
+        let store = try makeStore()
+        try await store.updateOverride(for: .app(bundleID: "Sample One")) { override in
+            override.hidden = true
+        }
+        try await store.updateOverride(for: .app(bundleID: "Sample Two")) { override in
+            override.disabled = true
+        }
+        let rows = [
+            ScoredItem(item: app("Sample One"), quality: 0.9),
+            ScoredItem(item: app("Sample Two"), quality: 0.9, placement: .pinnedTop),
+            ScoredItem(item: app("Sample Three"), quality: 0.9),
+        ]
+        let source = QuerySource("samples", latency: .inline) { _ in rows }
+        let (session, _) = await makeSession(
+            items: apps("Safari"), sources: [source], commands: store)
+        let published = Published(by: session)
+
+        await search("sa", generation: 1, in: session)
+
+        let results = try #require(published.all.first)
+        #expect(sectionIDs(of: results) == ["results"])
+        #expect(titles(in: results, section: "results").sorted() == ["Safari", "Sample Three"])
+    }
+
+    @Test func itemThatAppearsTwiceIsListedOnceWhereItComesFirst() async throws {
+        // The source pins an item that the matcher finds as well, as a quicklink's source does.
+        let pinned = ScoredItem(item: app("Safari"), quality: 1, placement: .pinnedTop)
+        let source = QuerySource("pins", latency: .inline) { _ in [pinned] }
+        let (session, _) = await makeSession(items: apps("Safari", "Sage"), sources: [source])
+        let published = Published(by: session)
+
+        await search("sa", generation: 1, in: session)
+
+        let results = try #require(published.all.first)
+        #expect(titles(in: results, section: "pinned") == ["Safari"])
+        #expect(titles(in: results, section: "results") == ["Sage"])
+    }
+
+    // MARK: Fallback
+
+    private let askAI = ItemID.command(FeatureID(rawValue: "ai"), "ask")
+
+    private func fallbackRow(_ title: String, id: ItemID? = nil) -> ScoredItem {
+        var item = app(title)
+        if let id {
+            item = SearchItem(id: id, title: title, icon: .symbol("link"), kindLabel: "Command")
+        }
+        return ScoredItem(item: item, quality: 0, placement: .fallback)
+    }
+
+    @Test func fallbackSectionIsShownInTheUsersOrderWhenNothingWasFound() async throws {
+        let store = try makeStore()
+        try await store.updateFallbackOrder { order in
+            order = [
+                .app(bundleID: "DuckDuckGo"), .app(bundleID: "Missing"), .app(bundleID: "Google"),
+            ]
+        }
+        let offered = [
+            fallbackRow("Google"), fallbackRow("DuckDuckGo"), fallbackRow("Not On The List"),
+        ]
+        let web = QuerySource("web", latency: .inline) { _ in offered }
+        let (session, _) = await makeSession(
+            items: apps("Safari"), sources: [web], commands: store)
+        let published = Published(by: session)
+
+        await search(" how tall is a giraffe ", generation: 1, in: session)
+
+        let results = try #require(published.all.first)
+        #expect(sectionIDs(of: results) == ["fallback"])
+        #expect(results.sections.first?.title == "Use “how tall is a giraffe” with")
+        #expect(titles(in: results, section: "fallback") == ["DuckDuckGo", "Google"])
+    }
+
+    // Right after launch the apps have not been scanned. "Nothing found" then means "not
+    // looked yet", and a Return typed that early must not become a web search.
+    @Test func fallbackSectionWaitsForTheIndexToBeBuilt() async throws {
+        let store = try makeStore()
+        try await store.updateFallbackOrder { order in order = [.app(bundleID: "Google")] }
+        let offered = [fallbackRow("Google")]
+        let web = QuerySource("web", latency: .inline) { _ in offered }
+        let index = IndexSource()
+        let registry = CommandRegistry(sources: [index, web], commands: store)
+        let now = now
+        let session = SearchSession(registry: registry, usage: InMemoryUsageStore(), now: { now })
+        let published = Published(by: session)
+
+        session.update(query: "saf", generation: 1)
+        let beforeTheIndex = try await published.next()
+        #expect(beforeTheIndex.sections.isEmpty)
+
+        // The index arrives, and the session searches again for the same query.
+        index.yield(apps("Notes"))
+        let withTheIndex = try await published.next()
+        #expect(sectionIDs(of: withTheIndex) == ["fallback"])
+    }
+
+    @Test func fallbackRowsStayAwayWhileSomethingWasFound() async throws {
+        let store = try makeStore()
+        try await store.updateFallbackOrder { order in order = [.app(bundleID: "Google")] }
+        let offered = [fallbackRow("Google")]
+        let web = QuerySource("web", latency: .inline) { _ in offered }
+        let (session, _) = await makeSession(
+            items: apps("Safari"), sources: [web], commands: store)
+        let published = Published(by: session)
+
+        await search("saf", generation: 1, in: session)
+
+        let results = try #require(published.all.first)
+        #expect(sectionIDs(of: results) == ["results"])
+    }
+
+    @Test func emptyFieldHasNoFallbackSection() async throws {
+        let store = try makeStore()
+        try await store.updateFallbackOrder { order in order = [.app(bundleID: "Google")] }
+        let offered = [fallbackRow("Google")]
+        let web = QuerySource("web", latency: .inline) { _ in offered }
+        let (session, _) = await makeSession(
+            items: apps("Safari"), sources: [web], commands: store)
+        let published = Published(by: session)
+
+        await search("", generation: 1, in: session)
+
+        let results = try #require(published.all.first)
+        #expect(results.sections.isEmpty)
+    }
+
+    @Test func askAIGoesFirstWhateverTheListSays() async throws {
+        let store = try makeStore()
+        try await store.updateFallbackOrder { order in order = [.app(bundleID: "Google")] }
+        let offered = [fallbackRow("Google"), fallbackRow("Ask AI", id: askAI)]
+        let mixed = QuerySource("mixed", latency: .inline) { _ in offered }
+        let (session, _) = await makeSession(
+            items: apps("Safari"), sources: [mixed], commands: store)
+        let published = Published(by: session)
+
+        await search("zzz", generation: 1, in: session)
+
+        let results = try #require(published.all.first)
+        #expect(titles(in: results, section: "fallback") == ["Ask AI", "Google"])
+    }
+
+    @Test func disabledItemLeavesTheFallbackSectionButAHiddenOneStays() async throws {
+        let store = try makeStore()
+        try await store.updateFallbackOrder { order in
+            order = [.app(bundleID: "Google"), .app(bundleID: "DuckDuckGo")]
+        }
+        try await store.updateOverride(for: .app(bundleID: "Google")) { override in
+            override.hidden = true
+        }
+        try await store.updateOverride(for: .app(bundleID: "DuckDuckGo")) { override in
+            override.disabled = true
+        }
+        let offered = [fallbackRow("Google"), fallbackRow("DuckDuckGo")]
+        let web = QuerySource("web", latency: .inline) { _ in offered }
+        let (session, _) = await makeSession(
+            items: apps("Safari"), sources: [web], commands: store)
+        let published = Published(by: session)
+
+        await search("zzz", generation: 1, in: session)
+
+        let results = try #require(published.all.first)
+        #expect(titles(in: results, section: "fallback") == ["Google"])
+    }
+
+    @Test func itemPinnedForTheQueryIsNotRepeatedInTheFallbackSection() async throws {
+        let store = try makeStore()
+        try await store.updateFallbackOrder { order in
+            order = [.app(bundleID: "Google"), .app(bundleID: "DuckDuckGo")]
+        }
+        let offered = [
+            ScoredItem(item: app("Google"), quality: 1, placement: .pinnedTop),
+            fallbackRow("Google"), fallbackRow("DuckDuckGo"),
+        ]
+        let web = QuerySource("web", latency: .inline) { _ in offered }
+        let (session, _) = await makeSession(
+            items: apps("Safari"), sources: [web], commands: store)
+        let published = Published(by: session)
+
+        await search("g giraffes", generation: 1, in: session)
+
+        let results = try #require(published.all.first)
+        #expect(sectionIDs(of: results) == ["pinned", "fallback"])
+        #expect(titles(in: results, section: "pinned") == ["Google"])
+        #expect(titles(in: results, section: "fallback") == ["DuckDuckGo"])
     }
 
     // MARK: Limits

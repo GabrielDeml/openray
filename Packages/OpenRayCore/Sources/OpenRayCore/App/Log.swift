@@ -5,6 +5,8 @@ public enum Log {
     public static let launcher = Logger(subsystem: AppInfo.bundleIdentifier, category: "launcher")
     public static let search = Logger(subsystem: AppInfo.bundleIdentifier, category: "search")
     public static let storage = Logger(subsystem: AppInfo.bundleIdentifier, category: "storage")
+    public static let permissions = Logger(
+        subsystem: AppInfo.bundleIdentifier, category: "permissions")
 }
 
 /// The app's single signposter and the names of its intervals, viewed in Instruments against the

@@ -8,6 +8,11 @@ enum HotKeyFormatter {
         symbols(for: hotKey.modifiers) + keyName(for: hotKey.keyCode)
     }
 
+    /// An action's shortcut as the action panel shows it, such as "⌘↩".
+    static func string(for chord: KeyChord) -> String {
+        symbols(for: chord.modifiers) + keyName(for: UInt32(chord.keyCode))
+    }
+
     /// The modifier symbols in the order macOS menus show them.
     static func symbols(for modifiers: HotKey.Modifiers) -> String {
         var symbols = ""

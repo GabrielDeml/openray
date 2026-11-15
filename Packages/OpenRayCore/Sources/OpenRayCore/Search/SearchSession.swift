@@ -80,11 +80,14 @@ import os
         let snapshot = registry.snapshot
         let candidates = candidates(for: parsedQuery)
         let sources = registry.sources
+        let overrides = registry.overrides
+        let isIndexReady = registry.isReady
 
         searchTask = Task {
             await run(
                 query: parsedQuery, generation: generation, snapshot: snapshot,
-                candidates: candidates, sources: sources)
+                candidates: candidates, sources: sources, overrides: overrides,
+                isIndexReady: isIndexReady)
         }
     }
 
@@ -125,7 +128,7 @@ import os
 
     private func run(
         query: SearchQuery, generation: UInt64, snapshot: IndexSnapshot, candidates: [Int]?,
-        sources: [any SearchSource]
+        sources: [any SearchSource], overrides: CommandOverrides, isIndexReady: Bool
     ) async {
         let usageSnapshot = await usage.snapshot()
         if Task.isCancelled { return }
@@ -169,7 +172,9 @@ import os
                 return .sourcesAreOverdue
             }
 
-            var progress = SearchProgress(query: query, sources: sources)
+            var progress = SearchProgress(
+                query: query, sources: sources, overrides: overrides,
+                isIndexReady: isIndexReady)
             for await event in group {
                 // A newer `update` has cancelled this search. `update` runs on the main actor,
                 // as this loop does, and nothing in the loop's body suspends. So a search that
@@ -184,7 +189,7 @@ import os
                     rememberSurvivors(ranked.survivors, of: query)
 
                 case .sourceFinished(let index, let rows):
-                    progress.rowsBySource[index] = rows
+                    progress.setRows(rows, ofSourceAt: index)
                     if progress.hasPublished {
                         let source = sources[index]
                         if source.latency == .inline {
@@ -195,7 +200,7 @@ import os
                                 missed the deadline for the first results
                                 """)
                         }
-                        if !rows.isEmpty {
+                        if progress.hasRows(fromSourceAt: index) {
                             publish(progress, generation: generation)
                         }
                     }
@@ -236,13 +241,22 @@ import os
 
 /// What one search has gathered so far, and how that is laid out in sections.
 private struct SearchProgress {
+    /// "Ask AI" leads the fallback section, whether or not the user's list names it (§4.2.9).
+    private static let askAI = ItemID.command(FeatureID(rawValue: "ai"), "ask")
+
     let query: SearchQuery
     let sources: [any SearchSource]
+    /// The user's overrides as they were when the search began.
+    let overrides: CommandOverrides
+    /// False while the registry has not built its first snapshot. "Nothing found" then only
+    /// means that the index is not there yet, which is no reason to offer a web search.
+    let isIndexReady: Bool
 
     /// The matcher's rows, best first. nil until the matcher is done.
     var matcherRows: [RankedRow]?
-    /// What each source returned, by its index in `sources`. nil while it has not finished.
-    var rowsBySource: [[ScoredItem]?]
+    /// What each source returned, by its index in `sources`, without the rows the user's
+    /// overrides take away. nil while the source has not finished.
+    private(set) var rowsBySource: [[ScoredItem]?]
     var inlineDeadlineHasPassed = false
 
     /// The rows of the ranked section. The first publish settles them, and every later publish
@@ -253,10 +267,42 @@ private struct SearchProgress {
     /// had finished by the first publish. Every other source gets a section of its own.
     private var sourcesInRankedSection: Set<Int> = []
 
-    init(query: SearchQuery, sources: [any SearchSource]) {
+    init(
+        query: SearchQuery, sources: [any SearchSource], overrides: CommandOverrides,
+        isIndexReady: Bool
+    ) {
         self.query = query
         self.sources = sources
+        self.overrides = overrides
+        self.isIndexReady = isIndexReady
         rowsBySource = Array(repeating: nil, count: sources.count)
+    }
+
+    /// Takes what a source returned. The registry keeps hidden and disabled items out of the
+    /// index; rows that a source computes for the query get the same treatment here.
+    mutating func setRows(_ rows: [ScoredItem], ofSourceAt index: Int) {
+        var allowedRows: [ScoredItem] = []
+        for scored in rows {
+            let id = scored.item.id
+            let isAllowed: Bool
+            if scored.placement == .fallback {
+                // A hidden item is only out of root search. It still serves in the fallback
+                // list, where the user put it by name.
+                isAllowed = !overrides.isDisabled(id)
+            } else {
+                isAllowed = overrides.isSearchable(id)
+            }
+            if isAllowed {
+                allowedRows.append(scored)
+            }
+        }
+        rowsBySource[index] = allowedRows
+    }
+
+    /// Whether the source has finished with rows that are left to show.
+    func hasRows(fromSourceAt index: Int) -> Bool {
+        guard let rows = rowsBySource[index] else { return false }
+        return !rows.isEmpty
     }
 
     var hasPublished: Bool { rankedSectionRows != nil }
@@ -285,7 +331,11 @@ private struct SearchProgress {
     /// Fixes the rows of the ranked section: the matcher's rows, and in one order with them the
     /// `.ranked` rows of the inline sources that have finished.
     mutating func settleRankedSection(usage: UsageSnapshot, now: Date) {
-        var rows = matcherRows ?? []
+        // The matcher pins the item whose alias was typed; that row goes to the pinned section.
+        var rows: [RankedRow] = []
+        for row in matcherRows ?? [] where row.scored.placement == .ranked {
+            rows.append(row)
+        }
         var hasRowsFromSources = false
 
         for (index, source) in sources.enumerated() where source.latency == .inline {
@@ -310,24 +360,30 @@ private struct SearchProgress {
 
     /// The sections in displayed order. A section without rows is left out: the launcher takes
     /// "no sections" for "nothing found", and the list would draw a header with nothing under it.
+    ///
+    /// An item is listed once. The list tells its rows apart by ID, and the same item can come
+    /// in twice: a quicklink that the matcher finds by its name and that its source pins for
+    /// the same query. The first row in displayed order stays.
     func sections() -> [ResultSection] {
         var sections: [ResultSection] = []
+        var listedIDs: Set<ItemID> = []
 
-        var pinnedRows: [ScoredItem] = []
-        for sourceRows in rowsBySource {
-            for scored in sourceRows ?? [] where scored.placement == .pinnedTop {
-                pinnedRows.append(scored)
+        /// Appends the section with the rows whose item is not listed yet, if any are left.
+        func add(id: String, title: String? = nil, rows: [ScoredItem]) {
+            var newRows: [ScoredItem] = []
+            for scored in rows {
+                let isNewItem = listedIDs.insert(scored.item.id).inserted
+                if isNewItem {
+                    newRows.append(scored)
+                }
+            }
+            if !newRows.isEmpty {
+                sections.append(ResultSection(id: id, title: title, rows: newRows))
             }
         }
-        if !pinnedRows.isEmpty {
-            sections.append(ResultSection(id: "pinned", rows: pinnedRows))
-        }
 
-        if let rankedSectionRows, !rankedSectionRows.isEmpty {
-            let section = ResultSection(
-                id: "results", title: rankedSectionTitle, rows: rankedSectionRows)
-            sections.append(section)
-        }
+        add(id: "pinned", rows: pinnedRows())
+        add(id: "results", title: rankedSectionTitle, rows: rankedSectionRows ?? [])
 
         // Slow sources, and inline sources that were too late for the ranked section.
         for (index, source) in sources.enumerated() {
@@ -336,11 +392,62 @@ private struct SearchProgress {
             for scored in rowsBySource[index] ?? [] where scored.placement == .ranked {
                 rows.append(scored)
             }
-            if !rows.isEmpty {
-                sections.append(ResultSection(id: source.id.rawValue, rows: rows))
+            add(id: source.id.rawValue, rows: rows)
+        }
+
+        add(id: "fallback", title: fallbackSectionTitle, rows: fallbackRows())
+        return sections
+    }
+
+    /// The item whose alias is the query, then what the sources pin, in source order.
+    private func pinnedRows() -> [ScoredItem] {
+        var rows: [ScoredItem] = []
+        for row in matcherRows ?? [] where row.scored.placement == .pinnedTop {
+            rows.append(row.scored)
+        }
+        for sourceRows in rowsBySource {
+            for scored in sourceRows ?? [] where scored.placement == .pinnedTop {
+                rows.append(scored)
             }
         }
-        return sections
+        return rows
+    }
+
+    /// The rows the sources offer for "nothing found", in the order of the user's fallback
+    /// list. A row whose item is not on the list is left out. No rows while something was
+    /// found, and none for the empty field, where there is no query to act on.
+    private func fallbackRows() -> [ScoredItem] {
+        guard let rankedSectionRows, rankedSectionRows.isEmpty else { return [] }
+        if query.normalized.isEmpty || !isIndexReady { return [] }
+
+        var offeredRows: [ItemID: ScoredItem] = [:]
+        for sourceRows in rowsBySource {
+            for scored in sourceRows ?? [] where scored.placement == .fallback {
+                // Of two sources that offer the same item, the earlier one wins.
+                if offeredRows[scored.item.id] == nil {
+                    offeredRows[scored.item.id] = scored
+                }
+            }
+        }
+
+        var order = overrides.fallbackOrder
+        order.removeAll { id in id == Self.askAI }
+        order.insert(Self.askAI, at: 0)
+
+        var rows: [ScoredItem] = []
+        for id in order {
+            if let scored = offeredRows[id] {
+                rows.append(scored)
+            }
+        }
+        return rows
+    }
+
+    private var fallbackSectionTitle: String {
+        let typed = query.raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        return String(
+            localized: "Use “\(typed)” with", bundle: .module,
+            comment: "The heading over the fallback commands, shown when a search finds nothing.")
     }
 
     private var rankedSectionTitle: String {

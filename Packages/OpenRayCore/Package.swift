@@ -30,6 +30,8 @@ let package = Package(
         .testTarget(
             name: "OpenRayCoreTests",
             dependencies: ["OpenRayCore"],
+            // Databases as earlier milestones left them, for the migration tests.
+            resources: [.copy("Fixtures")],
             swiftSettings: swiftSettings
         ),
     ]

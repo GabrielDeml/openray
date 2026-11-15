@@ -1,0 +1,183 @@
+import AppKit
+import OpenRayCore
+import SwiftUI
+
+/// The window a new user sees first: what OpenRay is, its hotkey, and whether it opens at login
+/// (docs/DESIGN.md §4.3.7). It comes to the front the way Settings does.
+final class OnboardingWindowController: ActivatingWindowController {
+    private let model: OnboardingModel
+
+    init(
+        model: OnboardingModel, hotKey: LauncherHotKey, loginItem: LoginItemModel,
+        focusRestorer: FocusRestorer
+    ) {
+        self.model = model
+        let window = NSWindow(
+            contentRect: .zero, styleMask: [.titled, .closable], backing: .buffered, defer: true)
+        window.title = String(localized: "Welcome to \(AppInfo.name)")
+        super.init(window: window, focusRestorer: focusRestorer)
+
+        let content = OnboardingView(model: model, hotKey: hotKey, loginItem: loginItem) {
+            [unowned self] in
+            close()
+        }
+        window.contentViewController = NSHostingController(rootView: content)
+        window.setContentSize(NSSize(width: 520, height: 380))
+        window.center()
+    }
+
+    override func windowWillClose(_ notification: Notification) {
+        // Closing the window before the last step ends onboarding too.
+        model.dismiss()
+        super.windowWillClose(notification)
+    }
+}
+
+struct OnboardingView: View {
+    @Bindable var model: OnboardingModel
+    let hotKey: LauncherHotKey
+    let loginItem: LoginItemModel
+    let close: () -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Group {
+                switch model.currentStep {
+                case .welcome: welcomeStep
+                case .hotKey: hotKeyStep
+                case .launchAtLogin: launchAtLoginStep
+                case nil: EmptyView()
+                }
+            }
+            .padding(32)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            Divider()
+            buttons.padding(16)
+        }
+        .onChange(of: hotKey.hotKey) { _, _ in
+            // Another chord has to be tried in its turn.
+            model.hotKeyChanged()
+        }
+        .onChange(of: model.isFinished) { _, isFinished in
+            if isFinished {
+                close()
+            }
+        }
+    }
+
+    // MARK: Steps
+
+    private var welcomeStep: some View {
+        VStack(spacing: 14) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 44, weight: .light))
+                .foregroundStyle(.tint)
+                .accessibilityHidden(true)
+            Text("Welcome to \(AppInfo.name)")
+                .font(.title2.weight(.semibold))
+            Text(
+                "Press a hotkey, type, and act: open apps, run system commands and follow your quicklinks without leaving the keyboard."
+            )
+            .multilineTextAlignment(.center)
+            Text(
+                "OpenRay sends no telemetry. Nothing you type leaves this Mac unless a command you run sends it somewhere, such as a web search."
+            )
+            .font(.callout)
+            .foregroundStyle(.secondary)
+            .multilineTextAlignment(.center)
+        }
+    }
+
+    private var hotKeyStep: some View {
+        VStack(spacing: 14) {
+            Text("Choose your hotkey")
+                .font(.title2.weight(.semibold))
+            Text("The hotkey opens the launcher from anywhere. Click it to record another one.")
+                .multilineTextAlignment(.center)
+            HotKeyRecorder(launcherHotKey: hotKey).fixedSize()
+
+            if let failure = hotKey.failure {
+                let chord = HotKeyFormatter.string(for: failure.hotKey)
+                Text("\(chord) could not be registered. Another app may be using it.")
+                    .font(.callout)
+                    .foregroundStyle(.red)
+            }
+            if hotKey.usesFallback {
+                // The recorder shows the stand-in, and nobody would guess why.
+                let fallback = HotKeyFormatter.string(for: LauncherHotKey.fallback)
+                Text("\(fallback) opens the launcher for now, until OpenRay quits.")
+                    .font(.callout)
+            }
+
+            Button("Use ⌘Space") {
+                hotKey.record(Self.commandSpace)
+            }
+            Text(
+                "⌘Space belongs to Spotlight. Turn it off first in System Settings › Keyboard › Keyboard Shortcuts › Spotlight."
+            )
+            .font(.callout)
+            .foregroundStyle(.secondary)
+            .multilineTextAlignment(.center)
+
+            Divider().padding(.vertical, 2)
+
+            let chord = HotKeyFormatter.string(for: hotKey.hotKey)
+            if model.hotKeyWasPressed {
+                Label("\(chord) works.", systemImage: "checkmark.circle.fill")
+                    .foregroundStyle(.green)
+            } else {
+                Text("Now press \(chord) to try it.")
+                    .fontWeight(.medium)
+            }
+        }
+    }
+
+    private var launchAtLoginStep: some View {
+        VStack(spacing: 14) {
+            Text("Open at login")
+                .font(.title2.weight(.semibold))
+            Text("OpenRay is only useful while it is running.")
+                .multilineTextAlignment(.center)
+            Toggle("Launch \(AppInfo.name) at login", isOn: $model.wantsLaunchAtLogin)
+                .toggleStyle(.checkbox)
+                .disabled(!loginItem.canChange)
+            if !loginItem.canChange {
+                Text("Not available in a development build.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+            Text("You can change this at any time in Settings › General.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private static let commandSpace = HotKey(
+        keyCode: UInt32(VirtualKey.space), modifiers: [.command])
+
+    // MARK: Buttons
+
+    private var buttons: some View {
+        HStack {
+            if model.stepIndex > 0 {
+                Button("Back") {
+                    model.goBack()
+                }
+            }
+            Spacer()
+            if model.currentStep == .hotKey && !model.canContinue {
+                // The hotkey may be one that cannot be pressed right now. It can be changed in
+                // Settings later.
+                Button("Skip") {
+                    model.advance()
+                }
+            }
+            Button(model.isOnLastStep ? "Done" : "Continue") {
+                model.advance()
+            }
+            .keyboardShortcut(.defaultAction)
+            .disabled(!model.canContinue)
+        }
+    }
+}

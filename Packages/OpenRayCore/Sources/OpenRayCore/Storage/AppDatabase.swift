@@ -8,6 +8,10 @@ public struct AppDatabase: Sendable {
     static let fileName = "OpenRay.sqlite"
 
     let writer: any DatabaseWriter
+    /// Whether the file that was there could not be used and this is an empty database in its
+    /// place. The app tells the user once, because what the launcher had learned and the
+    /// user's aliases and quicklinks are gone from it (§4.3.8).
+    public let wasReplaced: Bool
 
     /// Opens the database in `directory` and brings its schema up to date. The directory and the
     /// file are created when they are missing.
@@ -25,13 +29,15 @@ public struct AppDatabase: Sendable {
         let file = directory.appending(path: fileName, directoryHint: .notDirectory)
 
         do {
-            return try open(file)
+            let writer = try open(file)
+            return AppDatabase(writer: writer, wasReplaced: false)
         } catch {
             Log.storage.error("Cannot open the database, moving it aside: \(error)")
         }
 
         moveAside(file)
-        return try open(file)
+        let writer = try open(file)
+        return AppDatabase(writer: writer, wasReplaced: true)
     }
 
     /// A database that is gone when the last copy of the value is, for tests.
@@ -39,15 +45,15 @@ public struct AppDatabase: Sendable {
         // A pool needs a file. A queue is a single connection, which is all a test needs.
         let queue = try DatabaseQueue()
         try migrator.migrate(queue)
-        return AppDatabase(writer: queue)
+        return AppDatabase(writer: queue, wasReplaced: false)
     }
 
-    private static func open(_ file: URL) throws -> AppDatabase {
+    private static func open(_ file: URL) throws -> any DatabaseWriter {
         // No pragmas are set by hand: a pool always runs in WAL mode, and GRDB turns foreign
         // keys on for every connection it opens.
         let pool = try DatabasePool(path: file.path(percentEncoded: false))
         try migrator.migrate(pool)
-        return AppDatabase(writer: pool)
+        return pool
     }
 
     /// Renames the database together with the two files SQLite keeps beside it in WAL mode. Left
@@ -96,6 +102,43 @@ public struct AppDatabase: Sendable {
                       PRIMARY KEY (query, item_id)
                     );
                     """)
+        }
+
+        migrator.registerMigration("m3_commands") { db in
+            try db.execute(
+                sql: """
+                    CREATE TABLE alias (alias TEXT PRIMARY KEY, item_id TEXT NOT NULL);
+                    CREATE TABLE item_override (
+                      item_id  TEXT PRIMARY KEY,
+                      hidden   INTEGER NOT NULL DEFAULT 0,
+                      disabled INTEGER NOT NULL DEFAULT 0
+                    );
+                    CREATE TABLE quicklink (
+                      id TEXT PRIMARY KEY,
+                      name TEXT NOT NULL, template TEXT NOT NULL,
+                      open_with TEXT,
+                      icon TEXT, created_at REAL NOT NULL
+                    );
+                    CREATE TABLE fallback (item_id TEXT PRIMARY KEY, position INTEGER NOT NULL);
+                    """)
+
+            for quicklink in CommandSeeds.quicklinks {
+                try db.execute(
+                    sql: """
+                        INSERT INTO quicklink (id, name, template, open_with, icon, created_at)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                        """,
+                    arguments: [
+                        quicklink.id.uuidString, quicklink.name, quicklink.template,
+                        quicklink.openWith, quicklink.icon,
+                        quicklink.createdAt.timeIntervalSince1970,
+                    ])
+            }
+            for (position, id) in CommandSeeds.fallbackOrder.enumerated() {
+                try db.execute(
+                    sql: "INSERT INTO fallback (item_id, position) VALUES (?, ?)",
+                    arguments: [id.rawValue, position])
+            }
         }
 
         return migrator

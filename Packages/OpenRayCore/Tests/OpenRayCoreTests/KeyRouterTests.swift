@@ -30,9 +30,18 @@ import OpenRayCore
 
     /// Whether the router keeps one key press from AppKit although it has no intent for it.
     private func swallows(
+        _ keyCode: UInt16, _ modifiers: HotKey.Modifiers, _ characters: String?,
+        in context: KeyRouter.Context? = nil
+    ) -> Bool {
+        let chord = KeyChord(keyCode: keyCode, modifiers: modifiers, characters: characters)
+        return router.swallows(chord, in: context ?? atRoot)
+    }
+
+    /// Whether the launcher keeps a chord for itself, so that no action may use it.
+    private func reserves(
         _ keyCode: UInt16, _ modifiers: HotKey.Modifiers, _ characters: String?
     ) -> Bool {
-        router.swallows(KeyChord(keyCode: keyCode, modifiers: modifiers, characters: characters))
+        router.reserves(KeyChord(keyCode: keyCode, modifiers: modifiers, characters: characters))
     }
 
     // MARK: The routing table, row by row
@@ -254,6 +263,113 @@ import OpenRayCore
         #expect(!swallows(ansiX, [.command], "x"))
     }
 
+    // MARK: Under a confirmation
+
+    private let confirming = KeyRouter.Context(
+        confirmationOpen: true, queryIsEmpty: false, depth: 0)
+
+    @Test func confirmationTakesReturnAndEscape() {
+        #expect(intent(VirtualKey.returnKey, [], "\r", in: confirming) == .performPrimary)
+        #expect(intent(VirtualKey.keypadEnter, [], "\u{03}", in: confirming) == .performPrimary)
+        #expect(intent(VirtualKey.escape, [], "\u{1B}", in: confirming) == .escape)
+    }
+
+    // The Return that started the action is often still held when the question comes up.
+    @Test func heldReturnDoesNotAnswerAConfirmation() {
+        let repeating = KeyRouter.Context(
+            confirmationOpen: true, queryIsEmpty: false, depth: 0, keyIsRepeating: true)
+
+        #expect(intent(VirtualKey.returnKey, [], "\r", in: repeating) == nil)
+        #expect(intent(VirtualKey.keypadEnter, [], "\u{03}", in: repeating) == nil)
+        // It is kept from the field all the same.
+        #expect(swallows(VirtualKey.returnKey, [], "\r", in: repeating))
+        // A held Esc still says no.
+        #expect(intent(VirtualKey.escape, [], "\u{1B}", in: repeating) == .escape)
+    }
+
+    @Test func heldReturnElsewhereIsStillReturn() {
+        let repeating = KeyRouter.Context(queryIsEmpty: false, depth: 0, keyIsRepeating: true)
+
+        #expect(intent(VirtualKey.returnKey, [], "\r", in: repeating) == .performPrimary)
+    }
+
+    @Test func confirmationKeepsEveryOtherKeyFromTheLauncherAndFromTheField() {
+        // Keys the launcher would otherwise route.
+        #expect(intent(VirtualKey.downArrow, [], "\u{F701}", in: confirming) == nil)
+        #expect(intent(VirtualKey.ansiK, [.command], "k", in: confirming) == nil)
+        #expect(intent(VirtualKey.returnKey, [.command], "\r", in: confirming) == nil)
+        #expect(swallows(VirtualKey.downArrow, [], "\u{F701}", in: confirming))
+        #expect(swallows(VirtualKey.ansiK, [.command], "k", in: confirming))
+        // Typing and pasting, which would change the query behind the question.
+        #expect(swallows(ansiA, [], "a", in: confirming))
+        #expect(swallows(ansiV, [.command], "v", in: confirming))
+    }
+
+    @Test func itemShortcutsDoNotFireUnderAConfirmation() {
+        let context = KeyRouter.Context(
+            confirmationOpen: true, queryIsEmpty: false, depth: 0,
+            selectedItemShortcuts: [commandReturn: reveal])
+
+        #expect(intent(VirtualKey.returnKey, [.command], "\r", in: context) == nil)
+    }
+
+    @Test func composingInputMethodKeepsItsKeysUnderAConfirmation() {
+        let composing = KeyRouter.Context(
+            confirmationOpen: true, queryIsEmpty: false, depth: 0, hasMarkedText: true)
+
+        #expect(intent(VirtualKey.returnKey, [], "\r", in: composing) == nil)
+        #expect(!swallows(VirtualKey.returnKey, [], "\r", in: composing))
+        // ⌘Q is kept from AppKit all the same.
+        #expect(swallows(VirtualKey.ansiQ, [.command], "q", in: composing))
+    }
+
+    // MARK: With the search field hidden
+
+    @Test func keysThatWouldBeTypedAreKeptWhileTheFieldIsHidden() {
+        let hidden = KeyRouter.Context(queryIsEmpty: true, depth: 1, searchFieldHidden: true)
+
+        // The launcher's own keys still work.
+        #expect(intent(VirtualKey.escape, [], "\u{1B}", in: hidden) == .escape)
+        #expect(intent(VirtualKey.returnKey, [], "\r", in: hidden) == .performPrimary)
+        // Everything else would find no field to go to.
+        #expect(intent(ansiA, [], "a", in: hidden) == nil)
+        #expect(swallows(ansiA, [], "a", in: hidden))
+    }
+
+    // MARK: Reserved for the launcher
+
+    @Test func chordsOfTheRoutingTableAreReserved() {
+        #expect(reserves(VirtualKey.escape, [], "\u{1B}"))
+        #expect(reserves(VirtualKey.returnKey, [], "\r"))
+        #expect(reserves(VirtualKey.tab, [], "\t"))
+        #expect(reserves(VirtualKey.delete, [], "\u{7F}"))
+        #expect(reserves(VirtualKey.downArrow, [], "\u{F701}"))
+        #expect(reserves(VirtualKey.ansiN, [.control], "n"))
+        #expect(reserves(VirtualKey.ansiK, [.command], "k"))
+        #expect(reserves(VirtualKey.ansiDigits[2], [.command], "3"))
+        #expect(reserves(VirtualKey.ansiLeftBracket, [.command], "["))
+        #expect(reserves(VirtualKey.ansiComma, [.command], ","))
+        #expect(reserves(VirtualKey.ansiQ, [.command], "q"))
+    }
+
+    @Test func editingChordsOfTheSearchFieldAreReserved() {
+        #expect(reserves(ansiA, [.command], "a"))
+        #expect(reserves(ansiC, [.command], "c"))
+        #expect(reserves(ansiV, [.command], "v"))
+        #expect(reserves(ansiX, [.command], "x"))
+        #expect(reserves(ansiZ, [.command], "z"))
+        #expect(reserves(ansiZ, [.command, .shift], "z"))
+    }
+
+    @Test func chordsTheLauncherDoesNotUseAreFreeForActions() {
+        #expect(!reserves(VirtualKey.returnKey, [.command], "\r"))
+        #expect(!reserves(VirtualKey.returnKey, [.option], "\r"))
+        #expect(!reserves(VirtualKey.tab, [.shift], "\t"))
+        #expect(!reserves(VirtualKey.ansiK, [.command, .shift], "k"))
+        #expect(!reserves(ansiC, [.command, .shift], "c"))
+        #expect(!reserves(VirtualKey.delete, [.command], "\u{7F}"))
+    }
+
     // MARK: Context from state
 
     @Test func contextDescribesTheLauncherState() {
@@ -276,5 +392,11 @@ import OpenRayCore
         #expect(context.actionPanelOpen)
         #expect(context.queryIsEmpty)
         #expect(context.selectedItemShortcuts == [commandReturn: open])
+        #expect(!context.confirmationOpen)
+
+        _ = state.apply(.askConfirmation(Confirmation(title: "Sure?", confirmTitle: "Yes")))
+        context = KeyRouter.Context(state: state, searchFieldHidden: true)
+        #expect(context.confirmationOpen)
+        #expect(context.searchFieldHidden)
     }
 }

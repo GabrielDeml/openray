@@ -1,17 +1,185 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "%@ is hidden. Settings › Commands brings it back." : {
+      "comment" : "Shown after an app was hidden from search. The placeholder is the app's name."
+    },
+    "%@ is not running" : {
+      "comment" : "Shown when the Quit action is used on an app that is not running. The placeholder is the app's name."
+    },
+    "%@ works by sending a command to %@, and macOS asks for your permission first." : {
+      "comment" : "Explains an Automation permission. The first placeholder is a list of command names, the second an app's name."
+    },
+    "Accessibility" : {
+      "comment" : "The name of the Accessibility permission, as in System Settings."
+    },
+    "Add Alias…" : {
+      "comment" : "The action that opens Settings, where the selected app can be given an alias."
+    },
+    "Allowed" : {
+      "comment" : "The state of a permission the user has granted."
+    },
     "Application" : {
       "comment" : "The kind of a search result that is an app, shown at the end of its row."
     },
+    "Apps with unsaved changes may ask before they quit." : {
+      "comment" : "The message of the confirmation before restarting, shutting down, logging out or quitting all apps."
+    },
+    "Automation: %@" : {
+      "comment" : "The permission to send commands to another app, which is named."
+    },
+    "Changes that were not saved are lost." : {
+      "comment" : "The message of the confirmation before force quitting an app."
+    },
+    "Dark Mode" : {
+      "comment" : "Another name the Toggle Appearance command is found by."
+    },
+    "Denied" : {
+      "comment" : "The state of a permission the user has refused."
+    },
+    "Done" : {
+      "comment" : "Leaves the permission screen once the permission is granted."
+    },
+    "Empty Trash" : {
+      "comment" : "The command that empties the Trash."
+    },
+    "Empty the Trash?" : {
+      "comment" : "The title of the confirmation before emptying the Trash."
+    },
+    "Emptying the Trash" : {
+      "comment" : "Shown briefly after the Empty Trash command was sent to Finder."
+    },
+    "Finder" : {
+      "comment" : "The name of the Finder app."
+    },
+    "Force Quit" : {
+      "comment" : "The button that confirms force quitting an app."
+    },
+    "Force Quit %@" : {
+      "comment" : "The command that ends a running app at once. The app is named."
+    },
+    "Force quit %@?" : {
+      "comment" : "The title of the confirmation before force quitting an app."
+    },
+    "Give the quicklink a name." : {
+      "comment" : "Shown in the quicklink editor while the name is empty."
+    },
+    "Grant" : {
+      "comment" : "Asks macOS for a permission."
+    },
+    "Hide from Root Search" : {
+      "comment" : "The action that stops the selected app from showing up in search results."
+    },
+    "Light Mode" : {
+      "comment" : "Another name the Toggle Appearance command is found by."
+    },
+    "Log Out" : {
+      "comment" : "The command that logs the user out."
+    },
+    "Log out?" : {
+      "comment" : "The title of the confirmation before logging out."
+    },
+    "Not asked yet" : {
+      "comment" : "The state of a permission macOS has not asked the user about."
+    },
+    "Not known" : {
+      "comment" : "The state of a permission that could not be found out."
+    },
     "Open" : {
-      "comment" : "The action that opens the selected app."
+      "comment" : "The action that opens the selected app or quicklink."
+    },
+    "Open System Settings" : {
+      "comment" : "Opens the page of System Settings where a permission can be granted."
+    },
+    "OpenRay could not get the permission “%@”." : {
+      "comment" : "Shown when macOS could not be asked for a permission a command needs. The placeholder is the permission's name."
+    },
+    "OpenRay sends a command to %@ for this, and macOS asks for your permission first." : {
+      "comment" : "Explains an Automation permission. The placeholder is an app's name."
+    },
+    "Power Off" : {
+      "comment" : "Another name the Shut Down command is found by."
+    },
+    "Quicklink" : {
+      "comment" : "The kind of a search result that is a quicklink, shown at the end of its row."
+    },
+    "Quit" : {
+      "comment" : "The action that quits the selected app if it is running."
+    },
+    "Quit %@" : {
+      "comment" : "The command that quits a running app, which is named."
+    },
+    "Quit All" : {
+      "comment" : "The button that confirms quitting every running app."
+    },
+    "Quit All Apps" : {
+      "comment" : "The command that quits every running app."
+    },
+    "Quit all apps?" : {
+      "comment" : "The title of the confirmation before quitting every running app."
+    },
+    "Reboot" : {
+      "comment" : "Another word the Restart command is found by."
+    },
+    "Restart" : {
+      "comment" : "The command that restarts the Mac."
+    },
+    "Restart this Mac?" : {
+      "comment" : "The title of the confirmation before restarting."
     },
     "Results" : {
       "comment" : "The heading over the search results."
     },
+    "Show in Finder" : {
+      "comment" : "The action that reveals the selected app in a Finder window."
+    },
+    "Shut Down" : {
+      "comment" : "The command that turns the Mac off."
+    },
+    "Shut down this Mac?" : {
+      "comment" : "The title of the confirmation before shutting down."
+    },
+    "Sign Out" : {
+      "comment" : "Another name the Log Out command is found by."
+    },
+    "Sleep" : {
+      "comment" : "The command that puts the Mac to sleep."
+    },
     "Suggestions" : {
       "comment" : "The heading over the most used items, shown while nothing is typed."
+    },
+    "System" : {
+      "comment" : "The kind of a search result that is a system command, such as Sleep."
+    },
+    "System Events" : {
+      "comment" : "The name of the System Events app, as System Settings shows it."
+    },
+    "The items in the Trash are deleted for good." : {
+      "comment" : "The message of the confirmation before emptying the Trash."
+    },
+    "The link has to be a URL, such as https://example.com/search?q={query}." : {
+      "comment" : "Shown in the quicklink editor while the URL template is not a valid URL."
+    },
+    "Toggle Appearance" : {
+      "comment" : "The command that switches between the light and the dark appearance."
+    },
+    "Turn Off" : {
+      "comment" : "Another name the Shut Down command is found by."
+    },
+    "Type the text for %@" : {
+      "comment" : "The placeholder of the search field while it takes the argument of a quicklink, which is named."
+    },
+    "Use “%@” with" : {
+      "comment" : "The heading over the fallback commands, shown when a search finds nothing."
+    },
+    "macOS asks for the Accessibility permission before OpenRay may do this." : {
+      "comment" : "Explains the Accessibility permission on the permission screen."
+    },
+    "the login window" : {
+      "comment" : "The system process that restarts, shuts down and logs out."
+    },
+    "“%@” does not lead to a valid URL." : {
+      "comment" : "Shown when a quicklink's URL template cannot be opened. The placeholder is the quicklink's name."
     }
   },
   "version" : "1.0"

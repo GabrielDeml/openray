@@ -21,14 +21,19 @@ public final class AppIndexSource: SearchSource {
 
     /// What makes the source read its roots again.
     private enum RescanRequest: Sendable {
-        /// Something changed in the root at this index.
-        case root(Int)
+        /// Something changed in this root.
+        case root(URL)
         case allRoots
+        /// The user's list of further app folders is now this.
+        case userFoldersChanged([String])
     }
 
+    /// The roots the source was made with. The user's folders are searched after them.
     private let roots: [URL]
     private let preferredLanguages: [String]
-    private let openApp: @MainActor @Sendable (URL) async throws -> Void
+    private let host: any AppActionHost
+    private let commands: CommandStore
+    private let preferences: any PreferencesStore
     /// Where rescan requests go: to the items stream that was started last. nil before the
     /// first.
     private let rescanRequestContinuation = Mutex<AsyncStream<RescanRequest>.Continuation?>(nil)
@@ -37,16 +42,23 @@ public final class AppIndexSource: SearchSource {
     ///   - roots: The folders to search, each either a folder of apps or one app.
     ///   - preferredLanguages: The languages localised app names are read in. Tests pass their
     ///     own.
-    ///   - openApp: Opens the app at a URL. Core cannot do that itself, because `NSWorkspace`
-    ///     is part of AppKit; the app target passes it in.
+    ///   - host: What the actions need from AppKit. Core cannot open an app itself, because
+    ///     `NSWorkspace` is part of AppKit; the app target passes it in.
+    ///   - commands: Where "Hide from Root Search" writes.
+    ///   - preferences: Where the user's further app folders are kept (`apps.folders`). The
+    ///     source searches them after `roots` and follows changes to the list.
     public init(
         roots: [URL] = AppIndexSource.standardRoots,
         preferredLanguages: [String] = Locale.preferredLanguages,
-        openApp: @escaping @MainActor @Sendable (URL) async throws -> Void
+        host: any AppActionHost,
+        commands: CommandStore,
+        preferences: any PreferencesStore
     ) {
         self.roots = roots
         self.preferredLanguages = preferredLanguages
-        self.openApp = openApp
+        self.host = host
+        self.commands = commands
+        self.preferences = preferences
     }
 
     /// The apps as they are now, and the full list again after every change in a root.
@@ -68,8 +80,16 @@ public final class AppIndexSource: SearchSource {
         let scanning = Task {
             await self.keepItemsCurrent(yieldingTo: continuation, rescanRequests: rescanRequests)
         }
+        // The list of user folders reaches the scanning task as one more kind of request.
+        let preferences = preferences
+        let followingFolders = Task {
+            for await folders in preferences.changes(for: .appFolders) {
+                requestContinuation.yield(.userFoldersChanged(folders))
+            }
+        }
         continuation.onTermination = { _ in
             scanning.cancel()
+            followingFolders.cancel()
         }
         return items
     }
@@ -93,35 +113,62 @@ public final class AppIndexSource: SearchSource {
         yieldingTo continuation: AsyncStream<[SearchItem]>.Continuation,
         rescanRequests: AsyncStream<RescanRequest>
     ) async {
+        var userFolders = preferences.value(for: .appFolders)
+        var allRoots = rootsIncluding(userFolders)
+
         // The watching starts before the first scan. A change that falls between the two is
         // then a request waiting in the queue, not a change nobody noticed.
-        let watchers = startWatchers()
-        defer {
-            for watcher in watchers {
-                watcher.stop()
-            }
-        }
+        var watchers = startWatchers(for: allRoots)
+        defer { stop(watchers) }
 
-        var appsByRoot = await scanAllRoots()
+        var appsByRoot = await scan(allRoots)
         continuation.yield(items(from: appsByRoot))
 
         // This loop ends when its task is cancelled, which the end of the items stream does.
         for await request in rescanRequests {
             switch request {
             case .allRoots:
-                appsByRoot = await scanAllRoots()
-            case .root(let index):
+                appsByRoot = await scan(allRoots)
+
+            case .root(let root):
+                // A watcher's request can still be in the queue when its folder has left the
+                // list.
+                guard let index = allRoots.firstIndex(of: root) else { continue }
                 appsByRoot[index] = await AppBundleScanner.apps(
-                    in: roots[index], preferredLanguages: preferredLanguages)
+                    in: root, preferredLanguages: preferredLanguages)
+
+            case .userFoldersChanged(let folders):
+                // The preference reports its current value first, which is the list this loop
+                // started with.
+                if folders == userFolders { continue }
+                userFolders = folders
+                allRoots = rootsIncluding(userFolders)
+                stop(watchers)
+                watchers = startWatchers(for: allRoots)
+                appsByRoot = await scan(allRoots)
             }
             continuation.yield(items(from: appsByRoot))
         }
     }
 
+    /// The source's own roots followed by the user's folders. A folder that is in the list
+    /// already is left out: a root is rescanned by looking its URL up in this list, and of two
+    /// equal roots only the first would ever be read again.
+    private func rootsIncluding(_ userFolders: [String]) -> [URL] {
+        var allRoots = roots
+        for folder in userFolders {
+            let root = URL(filePath: folder, directoryHint: .isDirectory)
+            if !allRoots.contains(root) {
+                allRoots.append(root)
+            }
+        }
+        return allRoots
+    }
+
     /// One watcher for each root that can change while the app runs.
-    private func startWatchers() -> [AppFolderWatcher] {
+    private func startWatchers(for roots: [URL]) -> [AppFolderWatcher] {
         var watchers: [AppFolderWatcher] = []
-        for (index, root) in roots.enumerated() {
+        for root in roots {
             let path = root.path(percentEncoded: false)
             // The system's own apps are on the sealed volume, which only an OS update changes,
             // and the Mac restarts for that.
@@ -131,7 +178,7 @@ public final class AppIndexSource: SearchSource {
             if !FileManager.default.fileExists(atPath: path) { continue }
 
             let watcher = AppFolderWatcher(folder: root) { [self] in
-                requestRescan(.root(index))
+                requestRescan(.root(root))
             }
             guard let watcher else {
                 Log.search.error("Cannot watch the folder \(path) for changes")
@@ -142,8 +189,19 @@ public final class AppIndexSource: SearchSource {
         return watchers
     }
 
-    /// What each root holds, in the order of `roots`.
+    private func stop(_ watchers: [AppFolderWatcher]) {
+        for watcher in watchers {
+            watcher.stop()
+        }
+    }
+
+    /// What each of the source's roots and the user's folders holds, in that order.
     func scanAllRoots() async -> [[ScannedApp]] {
+        let userFolders = preferences.value(for: .appFolders)
+        return await scan(rootsIncluding(userFolders))
+    }
+
+    private func scan(_ roots: [URL]) async -> [[ScannedApp]] {
         var appsByRoot: [[ScannedApp]] = []
         for root in roots {
             let apps = await AppBundleScanner.apps(
@@ -201,7 +259,7 @@ public final class AppIndexSource: SearchSource {
                     // with an alias arrow, and `/Applications/Safari.app` is one.
                     icon: .file(path: app.resolvedPath),
                     kindLabel: kindLabel,
-                    actions: [openAction(forAppAt: app.path)])
+                    actions: actions(forAppAt: app.path, named: app.displayName, id: id))
                 items.append(item)
             }
         }
@@ -252,19 +310,115 @@ public final class AppIndexSource: SearchSource {
         return variants
     }
 
-    private func openAction(forAppAt path: String) -> ActionDescriptor {
+    // MARK: Actions
+
+    /// What can be done with an app, Open first. The second action gets ⌘↩ from the launcher.
+    private func actions(
+        forAppAt path: String, named name: String, id: ItemID
+    ) -> [ActionDescriptor] {
         let url = URL(filePath: path, directoryHint: .isDirectory)
+        return [
+            openAction(for: url),
+            showInFinderAction(for: url),
+            quitAction(for: url, named: name),
+            addAliasAction(for: id),
+            hideAction(for: id, named: name),
+        ]
+    }
+
+    private func openAction(for url: URL) -> ActionDescriptor {
         let title = String(
-            localized: "Open", bundle: .module, comment: "The action that opens the selected app.")
-        // A copy, so that the action holds on to the closure and not to the whole source.
-        let openApp = openApp
+            localized: "Open", bundle: .module,
+            comment: "The action that opens the selected app or quicklink.")
+        // A copy, so that the action holds on to the host and not to the whole source.
+        let host = host
 
         return ActionDescriptor(id: ActionID(rawValue: "open"), title: title) { context in
             // The launcher goes first (§4.1.6): an app that was not running can take seconds to
             // start, and its window must not come up behind the panel.
             context.closeLauncher()
-            try await openApp(url)
+            try await host.openApp(at: url)
             return .closeLauncher
+        }
+    }
+
+    private func showInFinderAction(for url: URL) -> ActionDescriptor {
+        let title = String(
+            localized: "Show in Finder", bundle: .module,
+            comment: "The action that reveals the selected app in a Finder window.")
+        let host = host
+
+        return ActionDescriptor(
+            id: ActionID(rawValue: "show-in-finder"), title: title, icon: .symbol("folder")
+        ) { context in
+            context.closeLauncher()
+            host.showInFinder(url)
+            return .closeLauncher
+        }
+    }
+
+    private func quitAction(for url: URL, named name: String) -> ActionDescriptor {
+        let title = String(
+            localized: "Quit", bundle: .module,
+            comment: "The action that quits the selected app if it is running.")
+        let host = host
+
+        return ActionDescriptor(
+            id: ActionID(rawValue: "quit"), title: title, icon: .symbol("xmark.circle")
+        ) { context in
+            let wasRunning = host.quitApp(at: url)
+            if wasRunning { return .closeLauncher }
+
+            let message = String(
+                localized: "\(name) is not running", bundle: .module,
+                comment:
+                    "Shown when the Quit action is used on an app that is not running. The placeholder is the app's name."
+            )
+            context.showHUD(message)
+            return .keepOpen
+        }
+    }
+
+    private func addAliasAction(for id: ItemID) -> ActionDescriptor {
+        let title = String(
+            localized: "Add Alias…", bundle: .module,
+            comment: "The action that opens Settings, where the selected app can be given an alias."
+        )
+        let host = host
+
+        return ActionDescriptor(
+            id: ActionID(rawValue: "add-alias"), title: title,
+            icon: .symbol("character.cursor.ibeam")
+        ) { context in
+            // Settings is a window outside the panel.
+            context.closeLauncher()
+            host.showAliasSettings(for: id)
+            return .closeLauncher
+        }
+    }
+
+    private func hideAction(for id: ItemID, named name: String) -> ActionDescriptor {
+        let title = String(
+            localized: "Hide from Root Search", bundle: .module,
+            comment: "The action that stops the selected app from showing up in search results.")
+        let commands = commands
+
+        return ActionDescriptor(
+            id: ActionID(rawValue: "hide"), title: title, icon: .symbol("eye.slash")
+        ) { context in
+            // Only the hidden flag changes; whatever else is stored about the item stays.
+            try await commands.updateOverride(for: id) { override in
+                override.hidden = true
+            }
+
+            let message = String(
+                localized: "\(name) is hidden. Settings › Commands brings it back.",
+                bundle: .module,
+                comment:
+                    "Shown after an app was hidden from search. The placeholder is the app's name.")
+            context.showHUD(message)
+            // The row leaves the list when the index has been rebuilt, a moment later.
+            return .keepOpen
         }
     }
 }

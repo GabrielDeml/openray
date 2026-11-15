@@ -62,7 +62,7 @@ If features later need views inside the package, they go in a separate `OpenRayF
 | `AppDatabase` and stores | Core | SQLite through GRDB (§4.3). |
 | `Preferences` | Core | `@MainActor @Observable` view of `UserDefaults` (§4.3.4). |
 
-**Launch order.** `applicationDidFinishLaunching` installs the main menu, registers the hotkey and shows Settings if the hotkey needs attention. The launcher comes a moment later: `SearchSession` needs the usage store, and `AppDatabase.openOnDisk` works on the disk. So a task opens the database and the store through a `@concurrent` function, and back on the main actor `AppDelegate` creates the sources, `CommandRegistry`, `SearchSession` and `LauncherController`, in that order, and only then honours `-OpenRayShowPanelOnLaunch`. Opening never fails: if the database cannot be used, the function returns an `InMemoryUsageStore` (§4.2.11). A hotkey pressed before the launcher exists is ignored. `AppDelegate` also asks the app index to `rescan()` on `NSWorkspace.didWakeNotification` (§4.2.8).
+**Launch order.** `applicationDidFinishLaunching` installs the main menu and registers the hotkey. Everything else comes a moment later, because it needs the database: `SearchSession` ranks by the usage in it, and the commands read their overrides from it, and `AppDatabase.openOnDisk` works on the disk. So a task opens the database and the usage store through a `@concurrent` function, and back on the main actor `AppDelegate.compose` builds the `FeatureEnvironment`, asks every built-in feature for its sources, and creates `CommandRegistry`, `SearchSession`, `LauncherModel`, `LauncherController` and the settings window with every feature's pane, in that order. Only then does it show the first window (onboarding for a new user, or Settings if the hotkey needs attention) and honour `-OpenRayShowPanelOnLaunch`. Opening never fails: a database that cannot be used at all is replaced by one in memory for this run (§4.2.11). A hotkey pressed before the launcher exists is ignored, and a request for Settings in that moment is remembered and answered once the window exists. On `NSWorkspace.didWakeNotification` `AppDelegate` tells every feature (`Feature.systemDidWake()`); the apps feature has the app index `rescan()` (§4.2.8).
 
 ### 3.3 From hotkey to action
 
@@ -71,7 +71,7 @@ If features later need views inside the package, they go in a separate `OpenRayF
 3. Each text change in the field becomes a `.queryChanged` intent. Other keys go through one local key monitor to `KeyRouter`, which returns an intent or lets the key fall through to the field editor.
 4. `LauncherModel` applies the intent to `LauncherState`. The reducer returns effects. At the root, a query change returns `.search(query:generation:)`, which `LauncherModel` passes to `SearchSession`.
 5. `SearchSession` cancels the previous search, matches the query against the `IndexSnapshot` and asks each source for query-specific results, all off the main actor. It publishes `SearchResults` tagged with the generation; `LauncherModel` drops stale generations, hands the rows to the reducer as `.resultsArrived`, and the list redraws.
-6. Return (or a shortcut, or a choice in the action panel) becomes `.perform`. `LauncherModel` checks the action's required permissions, shows its confirmation if it has one, records the pick in `UsageStore`, and awaits `perform(ActionContext)`.
+6. Return (or a shortcut, or a choice in the action panel) becomes `.perform`. `LauncherModel` shows the action's confirmation if it has one, checks its required permissions, records the pick in `UsageStore`, and awaits `perform(ActionContext)`.
 7. The returned `ActionOutcome` closes the launcher, keeps it open, pushes a screen, pops to root, replaces the query, or closes it and shows a HUD message.
 
 ```mermaid
@@ -264,14 +264,18 @@ public enum VirtualKey { /* the kVK_* codes the router and HotKey.isReservedShor
 public struct KeyRouter: Sendable {
     public struct Context: Sendable {
         public var actionPanelOpen: Bool
+        public var confirmationOpen: Bool      // the panel is asking the user to confirm something
         public var queryIsEmpty: Bool          // the search field is empty (LauncherState.searchFieldText)
         public var depth: Int                  // 0 = root
         public var selectedItemShortcuts: [KeyChord: ActionID]
         public var hasMarkedText: Bool         // an input method is composing in the search field
-        public init(state: LauncherState, selectedItemShortcuts: [KeyChord: ActionID] = [:], hasMarkedText: Bool = false)
+        public var searchFieldHidden: Bool     // the screen on top has hidden the search field
+        public var keyIsRepeating: Bool        // the press is a held key repeating (NSEvent.isARepeat)
+        public init(state: LauncherState, selectedItemShortcuts: [KeyChord: ActionID] = [:], hasMarkedText: Bool = false, searchFieldHidden: Bool = false, keyIsRepeating: Bool = false)
     }
     public func intent(for chord: KeyChord, in context: Context) -> LauncherIntent?   // nil: let AppKit handle it
-    public func swallows(_ chord: KeyChord) -> Bool   // no intent, and AppKit must not see it either: ⌘Q
+    public func swallows(_ chord: KeyChord, in context: Context) -> Bool   // no intent, and AppKit must not see it either
+    public func reserves(_ chord: KeyChord) -> Bool   // the launcher keeps the chord; no action may have it as its shortcut
 }
 ```
 
@@ -280,6 +284,7 @@ Routing, in priority order:
 | Chord | Intent |
 |---|---|
 | Any chord while `hasMarkedText` | `nil` |
+| While a confirmation is up: Return, keypad Enter (not repeating) / Esc / anything else | `.performPrimary` / `.escape` / `nil`, and `swallows` is true |
 | Esc | `.escape` (see the Esc ladder in §4.1.4) |
 | ↑ / ↓, ⌃P / ⌃N | `.moveSelection(-1)` / `.moveSelection(1)` |
 | Return, keypad Enter | `.performPrimary` |
@@ -297,11 +302,13 @@ Routing, in priority order:
 
 **Layouts.** The chords named by a letter or a punctuation mark (K, P, N, `[` and `,`) match on `characters`, lower-cased, when that value is ASCII, so on Dvorak ⌘K is the key that types K. When it is not ASCII (for example on a Cyrillic layout) they match on the key code of that key's position on an ANSI keyboard.
 
-**⌘Q** is the one chord the router has no intent for and still keeps from AppKit (`swallows`). The main menu has Quit OpenRay on ⌘Q for the settings window (§4.1.1). From the panel that item would end OpenRay, hotkey included, while the menu bar still shows the app behind the panel, so the monitor stops the event. This holds while an input method is composing too.
+**⌘Q** has no intent and is still kept from AppKit (`swallows`). The main menu has Quit OpenRay on ⌘Q for the settings window (§4.1.1). From the panel that item would end OpenRay, hotkey included, while the menu bar still shows the app behind the panel, so the monitor stops the event. This holds while an input method is composing too.
+
+**Keys with nowhere to go** are swallowed as well. Under a confirmation, Return and Esc answer it (the reducer turns the two intents into the answer, §4.1.4) and every other key is stopped, because it would otherwise edit the query behind the question. On a screen that hides the search field (`SearchBarMode.hidden`), a key the router has no intent for is stopped too: nothing is first responder to take it, and AppKit would beep. An input method that is composing keeps all its keys in both cases. A Return that repeats because it is held does not answer a confirmation: the Return that asked for the action is often still down when the question comes up, and its repeat would say yes to a shutdown nobody has read.
 
 **Item shortcuts** are looked up only after every fixed chord has declined, so an item can never take over Esc, Return or ⌘K. A shortcut is triggered when the modifiers are equal and the key matches: by `characters`, compared without case, when both the shortcut and the pressed chord have ASCII characters, and by key code otherwise. If one press triggers two of the item's shortcuts, the action with the smaller `ActionID` wins, which keeps routing deterministic.
 
-`CommandRegistry` drops, and logs, any action shortcut that collides with ⌘A, ⌘C, ⌘V, ⌘X, ⌘Z, ⌘⇧Z or a chord in this table. It does so from M3 on, when the first actions with shortcuts arrive.
+`CommandRegistry` drops, and logs, any action shortcut that collides with ⌘A, ⌘C, ⌘V, ⌘X, ⌘Z, ⌘⇧Z or a chord in this table (`KeyRouter.reserves`; Delete counts everywhere, not only where it means back). Rows that a source computes for a query and the rows of a screen never pass the registry, so `ActionShortcuts` (Core), which the key monitor and the action panel both ask for an item's shortcuts, leaves reserved chords out too. `ActionShortcuts` is also where an item's second action gets ⌘↩ when it has no shortcut of its own and no other action asked for that chord (§4.2.2), and where two actions that one key press would trigger are settled: the earlier action keeps its shortcut and the later one has none, so the router's own tie-break (the smaller `ActionID`) never comes into play for what the panel shows.
 
 #### 4.1.4 Navigation state
 
@@ -333,6 +340,7 @@ public struct LauncherState: Equatable, Sendable {
     }
     public private(set) var stack: [Frame]             // never empty; stack[0] is root
     public private(set) var actionPanel: ActionPanelState?
+    public private(set) var confirmation: Confirmation?   // the question the panel is asking; nil when none
     public private(set) var generation: UInt64         // bumped on every root query change and on every show
     public private(set) var actionSerial: UInt64       // bumped by .actionStarted; names that action in .actionFinished
     public var tabFallback: ScreenRequest?             // set by the app: Quick AI's chat screen, or nil
@@ -351,8 +359,9 @@ public enum LauncherIntent: Sendable, Equatable {
     case tabComplete, toggleActionPanel, back, escape, openSettings
     case push(ScreenRequest)
     case resultsArrived(rows: [LauncherState.Row], generation: UInt64)
-    case screenRowsChanged([LauncherState.Row])
+    case screenRowsChanged([LauncherState.Row], query: String)   // the rows of the top screen, and the query they answer
     case actionPanelRowsChanged([ActionID])
+    case askConfirmation(Confirmation)
     case actionStarted
     case actionFinished(ActionOutcome, serial: UInt64)
 }
@@ -367,6 +376,7 @@ public enum LauncherEffect: Sendable, Equatable {
     case hide
     case focusSearchField                              // first responder, with its text selected
     case scrollTo(ItemID), openSettings
+    case answerConfirmation(Bool)                      // the user answered, or the question went away, which is a no
 }
 ```
 
@@ -379,11 +389,12 @@ Rules:
 - **A new query selects the first row.** When a frame's query changes (and on every show), the next rows to arrive for that frame select their first row, even if the previously selected item is still among them. Until they arrive the selection stays where it was.
 - **A vanished row keeps its position.** When rows arrive for an unchanged query and the selected item is no longer among them, the selection moves to the row now at the same position, or to the last row if the list became shorter. Empty rows clear it.
 - **No wrap-around.** `.moveSelection` stops at the first and the last row. With nothing selected, a move down selects the first row and a move up the last.
-- `.resultsArrived` with a generation other than the current one is dropped. `LauncherState.generation` is the only generation counter in the app. Root results that arrive while a screen is on top update the root frame without scrolling; `.screenRowsChanged` is ignored at the root.
+- `.resultsArrived` with a generation other than the current one is dropped. `LauncherState.generation` is the only generation counter in the app. Root results that arrive while a screen is on top update the root frame without scrolling; `.screenRowsChanged` is ignored at the root, and dropped on a screen when the query it names is not the screen's query any more.
 - `.activateIndex(n)` selects the n-th row of the top frame and performs its primary action; a position outside the rows does nothing.
-- **Return ahead of the results.** Results arrive at least one main-actor turn after the query change that asked for them, and until then root search still holds the rows of its previous query. `.performPrimary` (with the action panel closed), `.activateIndex` and `.tabComplete` never act on those rows. While the root waits for the results of its query, the activation is remembered and performed on those results when they arrive: Return on their first row, ⌘n on their n-th, Tab on their first row's Tab target or else the fallback. The first results for the query use the activation up, also when they are empty or have no such row; rows that a slow source adds afterwards (§4.2.5) only update the list. Only the last activation is remembered. It is given up when the user does anything else first (typing, moving the selection, Esc, pushing or popping a screen, showing again), when the launcher is hidden (`.didHide`), and when an action starts; rows arriving and the late outcome of a cancelled action leave it alone. `.performAction` and opening the action panel are ignored in the same gap, because they name actions of the item that is on its way out. The app's side of this: every `.search` is answered with `.resultsArrived`, with no rows if it found nothing or failed, unless a newer search has replaced it. `SearchSession` gives that guarantee (§4.2.5), and `LauncherModel` passes every answer for the current generation on.
-- **On a screen nothing waits.** `.screenRowsChanged` does not say which query its rows answer, so the reducer cannot tell the answer it would wait for from a late answer to an earlier query, or from a row the screen added meanwhile. On a screen, Return, ⌘n, Tab, item shortcuts and the action panel act on the rows shown. A list screen still answers every `.forwardQuery` with `.screenRowsChanged`, which is what moves the selection to the first row of a new query. Whether a screen should name the query it answers is open (§8, item 28).
-- **Esc ladder:** cancel the frame's in-flight action; else close the action panel; else pop the frame; else clear the query; else hide.
+- **Return ahead of the results.** Results arrive at least one main-actor turn after the query change that asked for them, and until then root search still holds the rows of its previous query. (The rule is written for root search; a list screen follows it too, see the next rule.) `.performPrimary` (with the action panel closed), `.activateIndex` and `.tabComplete` never act on those rows. While the root waits for the results of its query, the activation is remembered and performed on those results when they arrive: Return on their first row, ⌘n on their n-th, Tab on their first row's Tab target or else the fallback. The first results for the query use the activation up, also when they are empty or have no such row; rows that a slow source adds afterwards (§4.2.5) only update the list. Only the last activation is remembered. It is given up when the user does anything else first (typing, moving the selection, Esc, pushing or popping a screen, showing again), when the launcher is hidden (`.didHide`), and when an action starts; rows arriving and the late outcome of a cancelled action leave it alone. `.performAction` and opening the action panel are ignored in the same gap, because they name actions of the item that is on its way out. The app's side of this: every `.search` is answered with `.resultsArrived`, with no rows if it found nothing or failed, unless a newer search has replaced it. `SearchSession` gives that guarantee (§4.2.5), and `LauncherModel` passes every answer for the current generation on.
+- **A list screen waits like root search.** `.screenRowsChanged` names the query its rows answer (§8, item 28, settled in M3). Rows for a query the screen has moved on from are dropped, so the reducer knows when the rows it holds answer the current query, and Return, ⌘n and Tab pressed in the gap wait for the answer exactly as at the root, while item shortcuts and the action panel are ignored. The other half of the contract is the screen's: a list screen calls `ScreenContext.setSections(_:answering:)` once for the empty text it starts with and once for every `.forwardQuery`, also when its rows stay the same. A custom screen is sent its queries too but has no rows to answer with, and nothing may wait for an answer that is not coming. The reducer is not told which kind a screen is; it learns it from the first rows a frame receives (even rows that come too late to show), and a frame that has never received rows never waits.
+- **Confirmations.** `.askConfirmation` puts a question over everything else (§4.1.6). While it is up, `.performPrimary` answers yes and `.escape` answers no, each with `.answerConfirmation`; `.willShow`, `.didHide` and a second `.askConfirmation` answer no and then do what they always do; every other intent of the user's (moving the selection, ⌘n, Tab, ⌘K, back, ⌘,, an item shortcut, a push) is ignored. What the app reports back is still applied: results arrive behind the question, and the outcome of the action that asked still navigates. Asking gives up an activation that was waiting for results, so that nothing starts behind a question.
+- **Esc ladder:** answer a confirmation with no; else cancel the frame's in-flight action; else close the action panel; else pop the frame; else clear the query; else hide.
 - **Back** (⌘[, Delete) closes the action panel if it is open. Otherwise it pops one frame, which cancels an action running in that frame, and does nothing at the root.
 - **Tab:** if the selected item has a `tabTarget`, push it. Otherwise, at the root with a non-empty query, push `tabFallback` with the query as its argument. Otherwise do nothing. At the root, Tab ahead of the results waits for them, as Return does.
 - **Action panel.** `.toggleActionPanel` opens the panel with an empty filter and no rows; the app then supplies the rows with `.actionPanelRowsChanged`, and again whenever the filter changes. At the root the panel opens only with an item selected; a screen can have actions of its own, so there it opens without one. While it is open, `.queryChanged` edits the filter and leaves the frame's query alone, `.moveSelection` moves within the panel, and `.performPrimary` performs the selected action on the frame's selected item. The rows for a new filter select their first action; rows that merely update keep the selected action while it is still listed. `.activateIndex` and `.tabComplete` are ignored. A second `.toggleActionPanel`, Esc, back, performing an action, and pushing or popping a screen close it.
@@ -391,19 +402,19 @@ Rules:
 - **Outcomes.** `.actionStarted` marks the top frame as waiting for the action that `actionSerial` now names. `.actionFinished(outcome, serial:)` is applied only if the top frame still waits for that serial, so an outcome always navigates from the frame that started its action. It is dropped after the action was cancelled, after its frame was popped, and after the launcher was shown again. `.closeLauncher` and `.showHUD` return `.hide`; `.keepOpen` only ends the wait; `.popToRoot` pops every screen; `.push` pushes; `.replaceQuery` changes the query as typing would, with a new search at the root and `.forwardQuery` on a screen.
 - **Show.** `.willShow` pops every screen, closes the action panel and stops waiting for any action. It does not return `.cancelAction`: an action still running from before keeps running (§4.1.1), but its outcome no longer navigates. The root keeps its query and, of the rows it still has, selects the first. The generation is bumped and `.search` is returned for that query, so results from before the hide are stale and the fresh ones select their first row. `.focusSearchField` follows, which selects the query text so typing replaces it. Hiding (`.didHide`) changes nothing in the state that the next show would see: it only gives up an activation that was waiting for results, so that an action cannot run after the launcher has gone.
 
-`LauncherModel` (app target) holds the state, the current `SearchResults` and the screens on the stack. Before applying an intent, it offers it to the top screen if that screen is a custom screen, the action panel is closed and no action is in flight (§4.1.5). It derives `selectedItemShortcuts` from the selected item's actions, and the rows of `.resultsArrived` from the results with `LauncherState.Row(item)`: the rows of every section, in displayed order. It reaches the window through the `LauncherShell` protocol (hide, focus the field, set the field's text, open Settings, the previous app as an `AppRef`, and a note that results were committed, for the latency probe), which `LauncherController` implements.
+`LauncherModel` (app target) holds the state, the current `SearchResults` and the screens on the stack, one `ActiveScreen` (the `ScreenSpec` and its `LauncherScreenContext`) for every frame above the root. Before applying an intent, it offers it to the top screen if that screen is a custom screen, neither the action panel nor a confirmation is up and no action is in flight (§4.1.5). Only what a key press means is offered (moving the selection, ⌘n, Return, Tab, back, Esc); text changes reach a screen through its `ScreenContext`. A Return the screen leaves alone runs the screen's first action, as it runs the first action of a selected item. The model derives the router's `selectedItemShortcuts` with `ActionShortcuts` from the current actions (the selected item's, or the custom screen's), and the rows of `.resultsArrived` from the results with `LauncherState.Row(item)`: the rows of every section, in displayed order. After every intent it tells the reducer which actions the open action panel lists (`ActionPanelFilter`, §4.1.6), hands the rows of a list screen that has come back to the top to the reducer again, and brings the search bar in line with the screen on top. It reaches the window through the `LauncherShell` protocol (hide, focus the field, set the field's text, set the search bar's placeholder, title and whether the field is hidden, open Settings, the previous app as an `AppRef`, and a note that results were committed, for the latency probe), which `LauncherController` implements.
 
 No effect carries the search field's text. The reducer changes it in several ways (Esc clears the query, leaving a screen restores the query below, the action panel swaps its filter in and out, `.replaceQuery`), so after every intent the model compares `searchFieldText` with its value before and writes the field only if the reducer changed it. It must not write otherwise: text an input method is still composing is in the field but not yet in the state, and writing would discard it. The write comes before the effects run, so that `.focusSearchField` selects the new text.
 
-**Running an action.** For `.perform`, `LauncherModel` finds the item among the current results and the action among the item's actions; if either is missing it does nothing. Then:
+**Running an action.** For `.perform`, `LauncherModel` finds the item among the rows of the top frame and the action among the item's actions, or, for an action without an item, among the actions of the screen on top; if either is missing it does nothing. It then applies `.actionStarted`, notes `actionSerial`, and runs the steps below in one stored `Task`, which ends by applying `.actionFinished(outcome, serial:)` with that serial. The steps themselves are `ActionRunner.run` in Core, which asks through `ActionContext` and `PermissionChecking` and is tested against fakes of both; the model only starts it, counts the pick when it is told to, and shows what comes back. `.actionStarted` is applied before anything suspends, and the confirmation and the permission check both suspend, so the frame waits from before step 1: a second Return finds it waiting and starts nothing, and `.cancelAction` cancels the stored task whichever step it is in.
 
-1. If the action has a `confirmation`, shows it in the panel (§4.1.6) and stops if the user declines.
-2. Checks `requiredPermissions` with `PermissionCenter` (§5.1). If one is missing it requests it or pushes the permission screen, as §5.1 describes, instead of running the action.
-3. If the item is in the root frame or a list screen, records the pick with `UsageStore.record(pick:query:at:)` using that frame's query. The write runs in a task of its own, so the action does not wait for the disk; a failed write is logged (§4.2.7).
-4. Applies `.actionStarted` and notes `actionSerial`, runs `perform` in a stored `Task`, and applies `.actionFinished(outcome, serial:)` with that serial. `.actionStarted` is applied before anything suspends, so a second Return finds the frame waiting and starts nothing. `.cancelAction` cancels the stored task.
-5. If `perform` throws, shows the error's `localizedDescription` in the HUD with the launcher still open, and logs it. The frame stops waiting (`.keepOpen`). An action that throws because Esc cancelled it has not failed, and nothing is shown or logged.
+1. If the action has a `confirmation`, shows it in the panel (§4.1.6) and ends with `.keepOpen` if the user declines.
+2. Checks `requiredPermissions` with `PermissionCenter` (§5.1), in a fixed order. If one is missing it requests it, or ends with `.push` of the permission screen, as §5.1 describes, instead of running the action. Cancellation is checked after each state has been read and before anything is shown, so Esc during the check stops the action without a prompt coming up for it.
+3. If the item is in the root frame or a list screen, records the pick with `UsageStore.record(pick:query:at:)` using that frame's query. The write runs in a task of its own, so the action does not wait for the disk; a failed write is logged (§4.2.7). A screen's own action has no item and records nothing.
+4. Awaits `perform`. An outcome of `.showHUD` is shown in the HUD after `.actionFinished` has closed the launcher, also when the outcome came too late to navigate: the action did run.
+5. If `perform` throws, shows the error's `localizedDescription` in the HUD with the launcher still open, and logs it with the error's domain and code public; the description can name a file and stays private (§5.3). The frame stops waiting (`.keepOpen`). An action that throws because Esc cancelled it has not failed, and nothing is shown or logged.
 
-M2 has steps 3 and 4 and the logging of step 5. Until the HUD exists the log line is the only trace of a failed action, so it carries the error's domain and code publicly; the description can name a file and stays private (§5.3). The confirmation view, `PermissionCenter` and the HUD arrive with M3. Until then an action that has a `confirmation` or `requiredPermissions` is not run at all, which is logged: nothing destructive may go ahead unconfirmed. No M2 action has either.
+M2 had steps 3 and 4 and the logging of step 5, and did not run an action with a `confirmation` or `requiredPermissions` at all. M3 added steps 1 and 2 and the HUD.
 
 #### 4.1.5 Results list and screens
 
@@ -412,17 +423,21 @@ The list is SwiftUI: a `ScrollView` with a `LazyVStack` of non-focusable rows, s
 A pushed screen is one of two kinds (`ScreenSpec`, §4.2.3):
 
 - **List screen.** The feature supplies rows through `ScreenContext.setSections(_:)` and, optionally, a detail view for the selected item (clipboard preview, Quick Look). The shell renders the rows and owns selection, Return, ⌘1–9 and ⌘K exactly as at the root. Clipboard history, snippets, file search and "Open With" are list screens.
-- **Custom screen.** The feature supplies a view and a `handleIntent` function. The shell offers each intent to `handleIntent` first; the screen returns `true` if it consumed it. Quick AI, script output, argument entry for scripts and quicklinks, and the permission screen are custom screens.
+- **Custom screen.** The feature supplies a view and a `handleIntent` function. The shell offers each key intent to `handleIntent` first; the screen returns `true` if it consumed it. A screen that only needs Return to do one thing does not handle intents at all: it sets its actions with `ScreenContext.setScreenActions`, and Return runs the first of them through the same steps as an item's action (§4.1.4), which is how the two custom screens of M3 work. Quick AI, script output, argument entry for scripts and quicklinks, and the permission screen are custom screens.
+
+The search bar follows the screen on top: its `SearchBarMode` gives the placeholder, or hides the field, in which case the bar shows the screen's title in the field's place and the field comes back for the action panel's filter. On a screen the search icon becomes a back arrow, and the footer names the screen. A request that no feature answers still gets a screen, one that says it is not available, because the reducer has pushed a frame for it and the model's screens have to keep step with the reducer's stack.
+
+M3 builds both kinds and ships two custom screens, the permission screen and the quicklink argument screen. No feature of M3 has a list screen (the first is clipboard history in M4), so that half is exercised by the reducer's tests only.
 
 #### 4.1.6 Action panel, confirmations and HUD
 
-**Action panel (⌘K).** An overlay drawn inside the panel, never an `NSMenu`, because menus and other windows may appear below a screen-saver-level panel. It lists the selected item's actions, or the screen's actions for a custom screen, with their shortcuts. While it is open, the search field's text is swapped for the panel's own filter text and swapped back when it closes. The shell matches the actions against the filter and reports the ones it lists with `.actionPanelRowsChanged`; the reducer owns the selection among them (§4.1.4).
+**Action panel (⌘K).** An overlay drawn inside the panel, never an `NSMenu`, because menus and other windows may appear below a screen-saver-level panel. It lists the selected item's actions, or the screen's actions for a custom screen, with their shortcuts. While it is open, the search field's text is swapped for the panel's own filter text and swapped back when it closes. The shell matches the actions against the filter with `ActionPanelFilter` (Core: the fuzzy matcher over the titles, keeping the actions' own order, so the primary action stays first) and reports the ones it lists with `.actionPanelRowsChanged`; the reducer owns the selection among them (§4.1.4).
 
-**Confirmations.** An action with a `confirmation` shows an in-panel view (title, message, a destructive button and Cancel; Return confirms, Esc cancels). OpenRay never uses `NSAlert` from the launcher: an alert would appear behind the panel, and when it became key the panel would resign key and hide.
+**Confirmations.** An action with a `confirmation` shows an in-panel view (title, message, a destructive button and Cancel; Return confirms, Esc cancels). OpenRay never uses `NSAlert` from the launcher: an alert would appear behind the panel, and when it became key the panel would resign key and hide. The question is part of the navigation state (`LauncherState.confirmation`, §4.1.4), so that Esc and Return are routed to it from the one place that routes keys. `ActionContext.confirm(_:)` asks the same way from inside a running action. A launcher that is hidden cannot ask, and hiding it while it asks is an answer: both count as no, because what cannot be confirmed must not happen.
 
 **System windows.** Any action that opens a window outside the panel (`NSOpenPanel`, Settings, a permission prompt, the first Apple event to a new target) calls `ActionContext.closeLauncher()` first.
 
-**HUD.** `HUDController` owns a borderless non-activating panel with the same level and collection behaviour as the launcher. It shows an icon and one line of text near the bottom of the screen and fades out after 1.5 s. Actions reach it through `ActionContext.showHUD(_:)` (launcher stays as it is) or by returning `.showHUD(_:)` (launcher closes first). It works while the launcher is hidden, which silent scripts and paste fallbacks rely on.
+**HUD.** `HUDController` owns a borderless non-activating panel with the same level and collection behaviour as the launcher. It shows a short text (`showHUD` carries nothing else, so there is no icon) near the bottom of the display the mouse is on and fades out after 1.5 s; the text is also posted as an accessibility announcement. Actions reach it through `ActionContext.showHUD(_:)` (launcher stays as it is) or by returning `.showHUD(_:)` (launcher closes first). It works while the launcher is hidden, which silent scripts and paste fallbacks rely on.
 
 #### 4.1.7 Focus restore and paste
 
@@ -586,7 +601,7 @@ public enum ActionOutcome: Sendable, Equatable {
 public struct ScreenRequest: Hashable, Sendable, Codable { public var feature: FeatureID; public var screen: String; public var argument: String? }
 public enum SearchBarMode: Sendable, Hashable { case hidden, filter(placeholder: String), input(placeholder: String) }
 
-public enum Placement: Sendable { case ranked, pinnedTop }
+public enum Placement: Sendable { case ranked, pinnedTop, fallback }   // fallback: §4.2.9
 public struct ScoredItem: Sendable {
     public var item: SearchItem
     public var quality: Double                 // match quality, 0...1 (§4.2.6)
@@ -619,13 +634,14 @@ Actions talk to the shell through `ActionContext`. Features reach other services
     func searchTextChanges() -> AsyncStream<String>
     func setSearchText(_ text: String)
     func setSearchBarMode(_ mode: SearchBarMode)
-    func setSections(_ sections: [ResultSection])        // list screens
-    func setScreenActions(_ actions: [ActionDescriptor]) // ⌘K entries for custom screens
+    var isOnScreen: Bool { get }                         // on top of the stack and the launcher is showing
+    func setSections(_ sections: [ResultSection], answering query: String)   // list screens; §4.1.4 says why the query
+    func setScreenActions(_ actions: [ActionDescriptor]) // ⌘K entries for custom screens; Return runs the first
     var actionContext: any ActionContext { get }
 }
 ```
 
-`LauncherActionContext` (app target) implements `ActionContext`; `LauncherModel` makes one for each action it performs. `previousApp` is the pid and bundle identifier of the app `FocusRestorer` recorded, and `closeLauncher()` hides the panel through `LauncherShell`. Hiding twice is harmless, so an action may close the launcher itself and still return `.closeLauncher`. In M2 the other members only hold their place, because no M2 action calls them: `showHUD` writes the text to the log and `confirm` answers `false` until M3 (`HUDController`, the confirmation view); `copy` does nothing and `paste` returns `.copiedOnly(.noTarget)` until M4 (`PasteService`).
+`LauncherActionContext` (app target) implements `ActionContext`; `LauncherModel` makes one for each action it performs and one for each screen. `previousApp` is the pid and bundle identifier of the app `FocusRestorer` recorded, and `closeLauncher()` hides the panel through `LauncherShell`. Hiding twice is harmless, so an action may close the launcher itself and still return `.closeLauncher`. From M3 on `showHUD` shows the text in the HUD and `confirm` asks in the panel (§4.1.6). `LauncherScreenContext` implements `ScreenContext`. Rows that a screen sets while it is being built reach the reducer once the screen is on the stack, and rows for a text the field has moved on from are not drawn, as the reducer does not take them. `isOnScreen` is for a screen that keeps itself current by polling: hiding the launcher pops nothing, so a screen can stay on the stack unseen for hours, and it must not poll all that time. `copy` does nothing and `paste` returns `.copiedOnly(.noTarget)` until M4 (`PasteService`); no M3 action calls them, which is why the two copy actions of an app wait for M4 as well (§4.2.8).
 
 #### 4.2.3 Sources, features and screens
 
@@ -648,11 +664,12 @@ public protocol SearchSource: Sendable {
 // A protocol extension gives both requirements empty defaults.
 
 // App target
-@MainActor protocol Feature {
+@MainActor protocol Feature: AnyObject {
     var id: FeatureID { get }
     func makeSources(_ env: FeatureEnvironment) -> [any SearchSource]
-    var settingsPane: SettingsPane? { get }                                   // §4.3.5
-    func makeScreen(_ request: ScreenRequest, context: any ScreenContext, env: FeatureEnvironment) -> ScreenSpec?
+    func settingsPane(_ env: FeatureEnvironment) -> SettingsPane?             // §4.3.5; nil by default
+    func makeScreen(_ request: ScreenRequest, context: any ScreenContext, env: FeatureEnvironment) -> ScreenSpec?   // nil by default
+    func systemDidWake()                                                      // nothing by default
 }
 
 @MainActor struct ScreenSpec {
@@ -670,14 +687,19 @@ public protocol SearchSource: Sendable {
     let usage: any UsageStore
     let commands: CommandStore
     let preferences: Preferences
+    let preferencesStore: any PreferencesStore   // for Core sources that follow a preference off the main actor
     let permissions: PermissionCenter
     let system: any SystemControl
-    let windows: AXWindowController
-    let secrets: any SecretStore
+    let workspace: WorkspaceActions              // NSWorkspace for Core's app and quicklink actions
+    let currentItems: () -> [SearchItem]         // CommandRegistry.items
+    let showSettings: (SettingsPane.ID?) -> Void
+    // windows: AXWindowController joins in M7, secrets: any SecretStore in M5.
 }
 ```
 
-`SearchQuery.normalized` is the query without surrounding whitespace, composed (NFC) and folded for case, diacritics and width (§4.2.6). `head` is the first whitespace-separated token of the query and `tail` the rest, trimmed; quicklinks use them (§4.2.9). `ScreenRegistry` asks the feature named by `ScreenRequest.feature` for a `ScreenSpec` and keeps the spec alive while its frame is on the stack; the spec's closures capture the feature's Core view model. `BuiltInFeatures.swift` lists the `Feature` values and is the only place a new command is added.
+`SearchQuery.normalized` is the query without surrounding whitespace, composed (NFC) and folded for case, diacritics and width (§4.2.6). `head` is the first whitespace-separated token of the query and `tail` the rest, trimmed; quicklinks use them (§4.2.9). `ScreenRegistry` asks the feature named by `ScreenRequest.feature` for a `ScreenSpec`. `LauncherModel` keeps the spec, together with the screen's context, for as long as its frame is on the stack; the spec's view holds the feature's Core view model, which is how that model lives exactly as long as its screen. `BuiltInFeatures.swift` lists the features and is the only place a new command is added: a feature's sources, its settings pane and its screens are all found through that list, and neither the launcher nor `AppDelegate` names a feature.
+
+Features are classes, because some keep what they made: the quicklinks feature looks the quicklink of a screen request up in its source, and the apps feature tells its index to rescan when the Mac wakes. The pane is a function of the environment because a pane needs services from it. The M3 features are `AppsFeature`, `SystemCommandsFeature`, `QuicklinksFeature`, `OpenRayFeature` (the "OpenRay Settings" command) and `PermissionsFeature` (the permission screen, no sources).
 
 #### 4.2.4 Command registry
 
@@ -686,17 +708,19 @@ public protocol SearchSource: Sendable {
 ```swift
 // OpenRayCore
 @MainActor public final class CommandRegistry {
-    public init(sources: [any SearchSource])
+    public init(sources: [any SearchSource], commands: CommandStore? = nil)
     public let sources: [any SearchSource]
+    public var items: [SearchItem] { get }                 // what the sources yielded, before the overrides; each ID once
+    public private(set) var overrides: CommandOverrides    // as last read from the store
     // Internal, for SearchSession: the current snapshot, and a callback after it has changed.
     private(set) var snapshot: IndexSnapshot
     var onChange: (@MainActor () -> Void)?
 }
 ```
 
-The registry keeps the latest items of each source and builds the snapshot from all of them in the order of `sources`, so of two sources that yield the same `ItemID` the earlier one wins. A source without indexed items has a stream that ends at once and contributes nothing. Each change cancels the build that is still running and starts a new one; a build checks for cancellation on the main actor before it publishes, so an older snapshot never replaces a newer one. The snapshot is empty until the first source has yielded. When the registry goes away it cancels its listeners, which ends the sources' streams.
+The registry keeps the latest items of each source and builds the snapshot from all of them in the order of `sources`, so of two sources that yield the same `ItemID` the earlier one wins. A source without indexed items has a stream that ends at once and contributes nothing. Each change cancels the build that is still running and starts a new one; a build checks for cancellation on the main actor before it publishes, so an older snapshot never replaces a newer one. The snapshot is empty until every source has reported, by yielding once or by ending its stream (and, with a store, until the overrides are in). With one source, as in M2, that was the first yield. With several it matters: the system commands are there at once and the app scan takes a moment, and a snapshot of half the sources would list "Quit Safari" where Safari is about to be, under a Return that was meant for the app. The price is that a source which neither yields nor ends holds the index back, so a source has to do one of the two promptly. `isReady` says whether a snapshot has been built; until then the session shows no fallback rows (§4.2.5). When the registry goes away it cancels its listeners, which ends the sources' streams.
 
-From M3 on the registry also applies the user's overrides from `CommandStore` while building: aliases become `NameVariant`s and pin on an exact match, hidden items leave root search, disabled commands disappear. It then also drops action shortcuts that collide with editing chords (§4.1.3); no M2 item has a shortcut.
+From M3 on the registry also applies the user's overrides while building. It follows `CommandStore.changes()` and builds again on every change. With a store it builds nothing until the store has answered once, so that an item the user has hidden never shows in the moment before its override arrives; if the store fails, search goes on with the overrides read so far. In the snapshot, aliases are names with weight 0.95 that pin on an exact match (§4.2.9), an item that is hidden or disabled is left out, and action shortcuts that collide with the launcher's own chords are removed and counted for the log (§4.1.3). `items` stays as the sources gave it, hidden and disabled items included: Settings lists them so that they can be brought back, and the permission list is read off their actions (§5.1).
 
 #### 4.2.5 Search session
 
@@ -724,12 +748,16 @@ From M3 on the registry also applies the user's overrides from `CommandStore` wh
 
 | Section | `id` | Title | Rows |
 |---|---|---|---|
-| Pinned | `pinned` | none | The `.pinnedTop` rows of every source that has answered, in source order. From M3 also the item whose alias equals the query (§4.2.9). |
+| Pinned | `pinned` | none | The item whose alias equals the query (§4.2.9), then the `.pinnedTop` rows of every source that has answered, in source order. |
 | Ranked | `results` | "Results", or "Suggestions" for an empty query | The matcher's rows and the `.ranked` rows of the inline sources that had answered by the first results, in one order: by final rank with the tie-breaks of §4.2.7. A source's row gets its rank from its own `quality` and the item's usage. Cut to 200 rows, the list size the latency budget is measured at (§4.1.5); a one-letter query matches most of the index. Once published, the section does not change for that search. |
 | One per late source | the source's `SourceID` | none | The `.ranked` rows of a `.slow` source, or of an `.inline` source that missed the first results. Such an inline source is logged as misclassified. In source order, below the ranked section. |
-| Fallback (M3) | | | §4.2.9 |
+| Fallback | `fallback` | "Use “<query>” with" | The `.fallback` rows of the sources, in the order of the user's fallback list, and only while the query is not empty, the ranked section is empty and the registry has built its first snapshot (§4.2.9). Before that, "nothing found" only means that the index is not there yet, and a Return typed right after launch must not become a web search. |
 
 A source that returned `nil` or no rows, or threw, has no section. For an empty query the ranked section holds the suggestions of §4.2.7.
+
+**One row per item.** The list tells its rows apart by `ItemID`, and one item can come in twice: a quicklink that the matcher finds by its name and that its source pins for the same query. Across all sections the first row in displayed order stays and the others are dropped.
+
+**Overrides.** A search takes the registry's `overrides` when it begins. The registry keeps hidden and disabled items out of the index; rows that a source computes for the query get the same treatment in the session. A `.fallback` row is dropped only when its item is disabled: a hidden item is out of root search, and it still serves in the fallback list, where the user put it by name.
 
 A search holds its `SearchSession` until it has ended. A source that neither answers nor honours cancellation therefore keeps one task alive for every search it was asked in; that is a bug in the source, and the 2 s log line names it.
 
@@ -786,7 +814,7 @@ public protocol UsageStore: Sendable {
 public actor InMemoryUsageStore: UsageStore { public init() }
 ```
 
-`UsageSnapshot.record` is the one implementation of the update rules above; both stores call it. `record` takes the query as typed and folds it as `SearchQuery` does, composing included, so a composed and a decomposed spelling of one query are one row. `affinity` expects the folded query, because ranking asks once per matching item on every keystroke and has folded the query already. `InMemoryUsageStore` holds a snapshot and nothing else. It is for tests, and for a session whose database could not be opened (§4.2.11).
+`UsageSnapshot.record` is the one implementation of the update rules above; both stores call it. `record` takes the query as typed and folds it as `SearchQuery` does, composing included, so a composed and a decomposed spelling of one query are one row. `affinity` expects the folded query, because ranking asks once per matching item on every keystroke and has folded the query already. `InMemoryUsageStore` holds a snapshot and nothing else. It is for tests, and for a session whose usage tables could not be loaded (§4.2.11).
 
 `SQLiteUsageStore` (an actor in Core) loads both tables at launch, writes each pick through to SQLite (§4.3.2), and keeps its in-memory `UsageSnapshot` current, so ranking never waits on disk. `LauncherModel` records every pick (§4.1.4). At launch the store deletes `usage` rows whose decayed score is below 0.01 and keeps `query_usage` to 5,000 rows, pruning the lowest decayed scores. Both are judged by the scores decayed to the time of launch, computed in Swift, and deleted in one transaction. If the deletion fails, the store logs it and carries on with what it read, and the rows go at the next launch. The query rows of a faded item are not deleted with it: they have faded just as far, add next to nothing to a rank, and are the first to go once the table is over its limit.
 
@@ -802,12 +830,22 @@ public final class AppIndexSource: SearchSource {
     public static let standardRoots: [URL]
     public init(roots: [URL] = AppIndexSource.standardRoots,
                 preferredLanguages: [String] = Locale.preferredLanguages,
-                openApp: @escaping @MainActor @Sendable (URL) async throws -> Void)
+                host: any AppActionHost,
+                commands: CommandStore,                        // where "Hide from Root Search" writes
+                preferences: any PreferencesStore)             // the user's folders, apps.folders
     public func rescan()                       // read every root again
+}
+@MainActor public protocol AppActionHost: AnyObject, Sendable {
+    func openApp(at url: URL) async throws
+    func showInFinder(_ url: URL)
+    func quitApp(at url: URL) -> Bool          // false when no copy of the app is running
+    func showAliasSettings(for item: ItemID)   // Settings › Commands, on this item
 }
 ```
 
-`openApp` is the seam to AppKit: the app target passes a closure that calls `NSWorkspace.openApplication(at:configuration:)`. A protocol would have one method and one caller. `roots` is where user-added folders will come in; there is no preference or settings pane for them before M3. A root is either a folder of apps or a single app (`Finder.app`).
+`AppActionHost` is the seam to AppKit: the app target's `WorkspaceActions` implements it with `NSWorkspace`. M2 passed a single `openApp` closure, when a protocol would have had one method and one caller; M3 has four operations and a fake of them in the tests. A root is either a folder of apps or a single app (`Finder.app`).
+
+**User folders.** The preference `apps.folders` holds further folders as absolute paths, edited in Settings › Applications, the apps feature's pane. The source searches them after its own roots, so a copy of an app that a standard root has never takes that app's bundle ID. It follows `PreferencesStore.changes(for:)`: when the list changes, the watchers are started again for the new list and every root is read again, without a restart. A watcher names the root it watches by URL, so a request that is still in the queue when its folder has left the list is recognised and dropped. A user folder that is one of the roots already is left out of the list, because of two equal roots only the first would ever be rescanned.
 
 - A folder whose name ends in `.app` is an app, as it is for Finder. `CFBundlePackageType` is not checked: Finder's is `FNDR`, a Safari web app's is `AAPL`, and both are apps the user opens. `LSUIElement` apps are kept.
 - Search five levels below a root (an app in `/Applications/Setapp/` is at level 2; Unity Hub puts its editors at level 5, in `/Applications/Unity/Hub/Editor/<version>/`), never inside a `.app` or any other package (`URLResourceKey.isPackageKey`; an installer's `.bundle` can hold an app, which Finder and Spotlight do not show), and not in hidden folders. Folders are listed in name order, so two scans of an unchanged root give the same list.
@@ -834,30 +872,32 @@ Every other name is an alternate name with weight 1.0: the file name, `CFBundleD
 
 **Icons.** Core carries `.file(path)` with the bundle's resolved path, not the path it was found under: the icon of a symbolic link is drawn with an alias arrow, and `/Applications/Safari.app` is one. The app target loads icons with `NSWorkspace.icon(forFile:)` into an `NSCache` with a count limit, keyed by path and modification date, so an app that was updated shows its new icon. Icons stay out of Core because Core must not depend on AppKit.
 
-**Actions.** M2 has one: Open. It calls `ActionContext.closeLauncher()` first (§4.1.6; an app that was not running can take seconds to show its window), then `openApp`, and returns `.closeLauncher`; an error from `openApp` is thrown to the shell, which logs it and from M3 on shows it in the HUD (§4.1.4). M3 adds Show in Finder, Copy Path, Copy Bundle Identifier, Quit (HUD "Not running" if it is not), Add Alias (opens Settings › Commands) and Hide from Root Search (writes an override).
+**Actions.** Open comes first, which makes it what Return runs. It calls `ActionContext.closeLauncher()` first (§4.1.6; an app that was not running can take seconds to show its window), then `openApp`, and returns `.closeLauncher`; an error from `openApp` is thrown to the shell, which logs it and shows it in the HUD (§4.1.4). M3 adds Show in Finder (the second action, so ⌘↩), Quit (which asks every running copy to quit, and says "<App> is not running" in the HUD and keeps the launcher open when there is none), Add Alias… (closes the launcher and opens Settings › Commands on the app) and Hide from Root Search (sets the hidden flag of the item's override, keeps what else is stored about it, and says in the HUD where to bring the app back; the row leaves the list when the index has been rebuilt). Copy Path and Copy Bundle Identifier arrive with M4: they need `ActionContext.copy`, and `PasteService`, the only writer of the pasteboard, does not exist before then (§4.1.7).
 
 #### 4.2.9 Aliases, quicklinks and fallback
 
-**Aliases.** Any item can have one or more aliases (stored in `CommandStore`). An exact alias match pins the item first; an alias prefix match ranks as a Prefix-tier match.
+**Aliases.** Any item can have one or more aliases (stored in `CommandStore`, folded as `SearchQuery.normalized` is, so an alias equals the query of whoever types it). An alias stands for one item: giving it to another item takes it from the first. In the index an alias is a name of its item with weight 0.95. A query that equals an alias pins the item first, above what the sources pin, with quality 1; a query that begins an alias ranks as a Prefix-tier match of a name with that weight. An alias that only repeats one of the item's own names adds no name: that name keeps its weight and pins like an alias.
 
-**Quicklinks.** A quicklink has a name, a URL template, an optional app to open it with and an icon. `{query}` in the template is replaced with the argument, percent-encoded with `.urlQueryAllowed` minus `&+=?#`. If the query's `head` equals a quicklink's name or alias, the quicklink is pinned first with `tail` as its argument. Selected without an argument, it pushes a one-field argument screen. It opens with `NSWorkspace.open(_:withApplicationAt:configuration:)` when an app is set and `open(_:)` otherwise; any scheme is allowed. If `URL(string:)` fails after substitution, the HUD shows an error and the launcher stays open. Quicklinks are created and edited in Settings › Commands.
+**Quicklinks.** A quicklink has a name, a URL template, an optional app to open it with and an icon (stored as text: an emoji, or `sf:` and an SF Symbol name; without one it gets the link symbol). `{query}` in the template is replaced with the argument, percent-encoded with `.urlQueryAllowed` minus `&+=?#`. `QuicklinkSource` (Core) shows a quicklink in three ways. It is an indexed item, found by name. If the query's `head` equals a quicklink's name or alias and a `tail` follows, the quicklink is pinned with `tail` as its argument and as its subtitle. And it offers a `.fallback` row for the whole query (see Fallback). Selected without an argument, a quicklink whose template has the placeholder pushes the argument screen, a custom screen whose search field is the input line and which shows the URL that Return will open; Tab on the row leads there too. A quicklink without the placeholder opens at once and is never pinned with an argument. It opens with `NSWorkspace.open(_:withApplicationAt:configuration:)` when an app is set and is still installed, and with the default app for the URL otherwise; any scheme is allowed. The URL is parsed strictly (`URL(string:encodingInvalidCharacters: false)`) and must have a scheme: the lenient parser would escape "not a url" into a relative URL that nothing can open. If that fails, the action throws before it closes the launcher, so the HUD shows an error that names the quicklink and the launcher stays open. Quicklinks are created and edited in Settings › Commands, which refuses to save one without a name or with a template that makes no URL.
 
-**Fallback.** When the ranked section is empty, the root shows the fallback section: "Ask AI" (`command:ai.ask`) always first, then the user-ordered fallback list, seeded with the Google and DuckDuckGo quicklinks and "Search Files". Each runs with the full raw query. Entries whose feature is not present are skipped.
+The source answers `results(for:)` on every keystroke from a copy of the store's last report, never from the database. The copy is kept current by the stream behind `indexedItems()`, which the registry reads for as long as the launcher lives.
+
+**Fallback.** When the ranked section is empty and the query is not, the root shows the fallback section: "Ask AI" (`command:ai.ask`) always first, then the user-ordered fallback list, seeded with the Google and DuckDuckGo quicklinks and "Search Files". Each runs with the full raw query. A fallback row is an ordinary result with `Placement.fallback`: sources return such rows from `results(for:)` for whatever of theirs can take a whole query (every quicklink with the placeholder does), with an action that acts on that query, and `SearchSession` shows the ones on the user's list, in the list's order. So showing a fallback entry needs no code outside its feature, and entries whose feature is not present are skipped simply because nothing offers them; their rows stay in the list for when the feature arrives. Settings shows such a row as not available yet and without a Remove button, because the pane can add quicklinks to the list and nothing else: an entry of another kind gets into the list by a migration's seed, as "Search Files" did, and once removed it could not be brought back.
 
 #### 4.2.10 System commands
 
-System command descriptors live in Core; their effects go through `SystemControl`, a Core protocol with one method per command, implemented in the app target and passed to the system-command source through `FeatureEnvironment`.
+System command descriptors live in Core (`SystemCommandSource`); their effects go through `SystemControl`, a Core protocol with one method per command, implemented in the app target (`MacSystemControl`) and passed to the system-command source through `FeatureEnvironment`. The fixed commands have the IDs `system:sleep`, `restart`, `shutDown`, `logOut`, `emptyTrash`, `toggleAppearance` and `quitAll`. Every running regular app with a bundle identifier gets two more items, "Quit <App>" (`system:quit.<bundle id>`) and "Force Quit <App>" (`system:forceQuit.<bundle id>`); two running copies of one app share theirs. The fixed commands are yielded at once and the app commands as soon as the list of running apps is in. Every command that sends an Apple event or opens a system dialog closes the launcher first (§4.1.6).
 
 | Command | Mechanism | Confirmation | Permission |
 |---|---|---|---|
 | Sleep | `IOPMSleepSystem(IOPMFindPowerManagement(MACH_PORT_NULL))`; the header says the caller "must be root or the console user" | none | none |
-| Restart, Shut Down, Log Out | `kAERestart`, `kAEShutDown`, `kAEReallyLogOut` (`kCoreEventClass`) to `com.apple.loginwindow` (QA1134). Running apps can cancel. | yes | `.automation(bundleID: "com.apple.loginwindow")`. UNVERIFIED whether macOS prompts for loginwindow as a target; test a signed build on macOS 26. |
-| Empty Trash | Finder event `fndr`/`empt` (Finder.sdef) | yes | `.automation(bundleID: "com.apple.finder")` |
-| Toggle Appearance | System Events: a get event, then a set event, of the `dark mode` property of `appearance preferences`. Read the four-character codes from SystemEvents.sdef. | none | `.automation(bundleID: "com.apple.systemevents")` |
+| Restart, Shut Down, Log Out | `kAERestart`, `kAEShutDown`, `kAEReallyLogOut` (`kCoreEventClass`) to `com.apple.loginwindow` (QA1134), sent without waiting for the reply, as QA1134 sends them: running apps can cancel, and that can take as long as the user takes to answer a save dialog. | yes | `.automation(bundleID: "com.apple.loginwindow")`. UNVERIFIED whether macOS prompts for loginwindow as a target; test a signed build on macOS 26. |
+| Empty Trash | Finder event `fndr`/`empt` (Finder.sdef), sent without waiting for the reply, because emptying a full Trash outlasts any sensible timeout; the HUD says "Emptying the Trash" | yes | `.automation(bundleID: "com.apple.finder")` |
+| Toggle Appearance | System Events: a get event (`core`/`getd`), then a set event (`core`/`setd`), of the `dark mode` property (`thme`) of `appearance preferences` (`aprp`). The codes were read from SystemEvents.sdef on macOS 27. | none | `.automation(bundleID: "com.apple.systemevents")` |
 | Quit App, Force Quit App, Quit All Apps | `NSRunningApplication.terminate()` / `forceTerminate()` over `.regular` apps; Quit All skips Finder and OpenRay. Items come from a main-actor source fed by workspace launch and terminate notifications. | Force Quit and Quit All only | none |
 | Lock Screen (M7) | Post ⌃⌘Q through `PasteService`'s event-posting path. UNVERIFIED that a synthetic ⌃⌘Q locks the screen on macOS 26 and 27. | none | `.accessibility` |
 
-**`AppleEventSender`** (app target) is an actor with a serial-queue executor and the only place Apple events are sent. It takes a `Sendable` description of the event (target bundle ID, class, ID, parameters), builds the `NSAppleEventDescriptor` inside the actor, and calls `sendEvent(options:timeout:)`. `NSAppleScript` is not used: it is not `Sendable` and has historically required the main thread. If the target is not running (`procNotFound`), the sender launches it with `activates = false` and retries once.
+**`AppleEventSender`** (app target) is an actor with a serial-queue executor and the only place Apple events are sent. It takes a `Sendable` description of the event, Core's `AppleEventDescription` (target bundle ID, class, ID, parameters, and whether to wait for the reply), builds the `NSAppleEventDescriptor` inside the actor, and calls `sendEvent(options:timeout:)`. The descriptions of the events above are constants in Core, where tests check their codes, and each command's required permission is taken from its event's target, so the two cannot drift apart. The type is not called `AppleEvent` because the system SDK has a type of that name. A parameter is a Boolean or a property reached through a chain of properties; the sender turns the latter into an object specifier. `NSAppleScript` is not used: it is not `Sendable` and has historically required the main thread. If the target is not running (`procNotFound`), the sender launches it with `activates = false` and retries once. For an event that waits for its reply, a target that answers with an error of its own makes `send` throw; the four events that do not wait can only fail at sending. UNVERIFIED on a real Mac: nothing in the tests or the build sends an event, so the descriptors themselves have only been compiled (§8, item 7).
 
 #### 4.2.11 Failure modes
 
@@ -868,7 +908,7 @@ System command descriptors live in Core; their effects go through `SystemControl
 | FSEvents drops events or a volume unmounts | The root the stream watches is read again as a whole (§4.2.8). Vanished apps are removed; their usage rows are pruned by decay. |
 | Automation denied | §5.1 |
 | Restart cancelled by an app | Nothing to do; loginwindow names the cancelling app. |
-| Database unavailable | The app runs on an `InMemoryUsageStore` (§3.2): ranking starts from an empty `UsageSnapshot` and learns for this run only. Search still works. |
+| Database unavailable | A file that cannot be opened is moved aside and replaced (§4.3.8). If even that fails, the app runs on a database in memory for this run (§3.2): ranking starts from nothing, the commands have their seeded quicklinks, and whatever the user changes lasts until OpenRay quits, which the HUD says at launch. If only the usage tables cannot be loaded, picks are counted by an `InMemoryUsageStore`. Search works in every case. |
 
 ### 4.3 Storage and settings
 
@@ -977,7 +1017,8 @@ Stores are `Sendable` structs (or, for `SQLiteUsageStore`, an actor) in Core wit
 // OpenRayCore
 public struct AppDatabase: Sendable {
     public static func openOnDisk(at directory: URL) throws -> AppDatabase
-    public static func inMemory() throws -> AppDatabase                // tests
+    public static func inMemory() throws -> AppDatabase                // tests, and a session without a usable file
+    public let wasReplaced: Bool                                       // the file was moved aside and this is an empty one (§4.3.8)
 }
 public actor SQLiteUsageStore: UsageStore {                           // §4.2.7
     public init(database: AppDatabase, now: Date = Date()) async throws   // now: when the stored scores are judged for pruning
@@ -985,12 +1026,12 @@ public actor SQLiteUsageStore: UsageStore {                           // §4.2.7
 
 public struct CommandStore: Sendable {
     public func snapshot() async throws -> CommandOverrides           // aliases, overrides, quicklinks, fallback order
-    public func changes() -> AsyncThrowingStream<CommandOverrides, Error>
-    public func setAlias(_ alias: String, for id: ItemID) async throws
-    public func setOverride(_ override: ItemOverride, for id: ItemID) async throws
+    public func changes() -> AsyncThrowingStream<CommandOverrides, Error>   // the current state, then every change
+    public func setAliases(_ aliases: [String], for id: ItemID) async throws   // replaces the item's aliases
+    public func updateOverride(for id: ItemID, _ change: @escaping @Sendable (inout ItemOverride) -> Void) async throws
     public func saveQuicklink(_ q: Quicklink) async throws
     public func deleteQuicklink(_ id: UUID) async throws
-    public func setFallbackOrder(_ ids: [ItemID]) async throws
+    public func updateFallbackOrder(_ change: @escaping @Sendable (inout [ItemID]) -> Void) async throws
 }
 
 public struct ClipboardStore: Sendable {
@@ -1013,6 +1054,8 @@ public struct SnippetStore: Sendable {
 ```
 
 `openOnDisk` creates the directory if it is missing, runs the migrations and recovers from a database it cannot open (§4.3.8). It works on the disk and blocks, so callers on the main actor go through a `@concurrent` function.
+
+`CommandStore.changes()` is a GRDB `ValueObservation` over the four tables of `m3_commands`, without duplicates, so a write that leaves the tables as they were is not a change. Every write is one transaction that starts from what is stored, never from a copy the caller holds. `updateOverride` is the one way to change an item's override: the two switches of a row in Settings each change one flag, and with a read in one step and a write in the next, two quick changes could undo each other. `updateFallbackOrder` changes the fallback list the same way, and `setAliases` replaces the aliases of one item in one go, which is what the alias field of Settings sends. (The earlier sketch had `setAlias`, `setOverride` and `setFallbackOrder`, each of which wrote what the caller had worked out from its own, possibly stale, copy.) An override that neither hides nor disables removes its row. Deleting a quicklink takes its aliases, its override and its fallback row with it.
 
 `CommandOverrides`, `ItemOverride`, `Quicklink`, `Snippet`, `ClipID`, `ClipSummary` and `RetentionPolicy` are `Sendable` value types mirroring the tables in §4.3.2. `CapturedClip` carries a clip's kind, its representations (`[ClipRepresentation]`, §4.1.7), its plain text and its source bundle ID.
 
@@ -1052,6 +1095,7 @@ Every preference has one `PreferenceKey`, declared next to the feature that owns
 |---|---|---|---|
 | `launcher.hotKey` | `HotKey` | `.launcherDefault` | M1 |
 | `onboarding.completedVersion` | `Int` | 0 | M3 |
+| `apps.folders` | `[String]` | `[]` (§4.2.8) | M3 |
 | `clipboard.enabled` | `Bool` | `false` | M4 |
 | `clipboard.retention` | `RetentionPolicy` | 1 month | M4 |
 | `clipboard.ignoredApps` | `[String]` | §4.5 | M4 |
@@ -1082,13 +1126,15 @@ struct SettingsPane: Identifiable {
 }
 ```
 
+`SettingsWindowController` and `OnboardingWindowController` (§4.3.7) share the activation path through their superclass, `ActivatingWindowController`: recording the frontmost app, activating, the one retry, and restoring focus when the window closes. The settings window is created in `AppDelegate.compose` (§3.2), when the services its panes need exist.
+
 The menu-bar item, ⌘, in the launcher, the "OpenRay Settings" command and hotkey failures all call `show(pane:)`. It does not hide the launcher: the panel hides when it resigns key, and ⌘, hides it after Settings is up (§4.1.7). The app stays `.accessory` throughout (§4.1.1). `NSApp.activate()` (macOS 14+) is documented as "not guaranteed"; one run-loop turn after showing, the controller activates once more if none of OpenRay's windows is key. It leaves things alone if another OpenRay window, such as the launcher, has taken the keyboard since. UNVERIFIED: that this reliably brings the window to the front on macOS 26 and 27, including when invoked from the panel over a full-screen app; on the manual checklist.
 
 The window is titled, closable and miniaturisable, 660 × 420 points, and is never released when closed. ⌘W closes it through File › Close Window in the hidden main menu (§4.1.1). When it closes, the controller runs `FocusRestorer.restoreIfNeeded()` one run-loop turn later, because closing its last window would otherwise leave OpenRay the active app with nowhere for typing to go (§4.1.7).
 
 The window's content is an `NSHostingController` whose root view is a plain `HStack`, not a `NavigationSplitView`: a `List` of the panes in sidebar style, sorted by `order`, then a divider, then the selected pane's view. The selection lives in an `@Observable` object the controller owns, which is how `show(pane:)` switches panes from AppKit.
 
-**Panes.** General (hotkey recorder, launch at login, permissions with their state and Grant buttons) ships in M1 with the hotkey recorder only. Commands (enable, disable and hide items; aliases; quicklinks; fallback order) arrives in M3. Each feature contributes its own pane through `Feature.settingsPane` (Clipboard, Quick AI, Window Management, File Search, Snippets, Scripts). Updates and About (version, licences and acknowledgements) arrive in M6.
+**Panes.** General (hotkey recorder, launch at login, permissions with their state and Grant buttons) shipped in M1 with the hotkey recorder only; M3 adds the other two. Its list of permissions is not written down anywhere: `PermissionListModel` (Core) reads off the registry's items which permissions their actions require and which commands need each (§5.1). Commands arrives in M3, with three parts: the items (a list of commands and a list of applications, each with a filter, an alias field that takes several aliases separated by commas, and switches for "in search" and "enabled"), the quicklinks (add, edit, delete) and the fallback list (reorder, remove, add a quicklink). `CommandsSettingsModel` (Core) is its view model; it follows the store, so the pane shows a change once the store has it. "Add Alias…" in the launcher opens the pane filtered to that item with its alias field focused. Each feature contributes its own pane through `Feature.settingsPane(_:)`: Applications in M3 (the user's app folders, §4.2.8), then Clipboard, Quick AI, Window Management, File Search, Snippets, Scripts. Updates and About (version, licences and acknowledgements) arrive in M6.
 
 #### 4.3.6 Launch at login
 
@@ -1106,14 +1152,14 @@ public enum LoginItemStatus: Sendable { case disabled, enabled, requiresApproval
 
 `SMAppService.Status` maps `.notRegistered` → `.disabled`, `.enabled` → `.enabled`, `.requiresApproval` → `.requiresApproval`, `.notFound` → `.unavailable`. The status is re-read whenever the pane appears and on `NSApplication.didBecomeActiveNotification`, because the user can change it in System Settings › General › Login Items. `.requiresApproval` shows an "Open Login Items" button. No permission prompt is involved; macOS posts its own "login item added" notification.
 
-If `register()` throws (for example a build running from DerivedData or a translocated copy), the error is shown inline and the toggle stays off. UNVERIFIED: how `mainApp` behaves for translocated or ad-hoc-signed bundles. Debug builds disable the toggle.
+If `register()` throws (for example a build running from DerivedData or a translocated copy), the error is shown inline and the toggle stays off. UNVERIFIED: how `mainApp` behaves for translocated or ad-hoc-signed bundles. Debug builds disable the toggle. `LoginItemModel` (Core) is the switch's view model: it holds the status and the last error, counts `.requiresApproval` as on, and with `canChange` false (Debug) never calls the controller. Nothing in the tests or the build registers a login item; the `SMAppService` wrapper is compiled only.
 
 #### 4.3.7 Onboarding
 
-The onboarding window uses `SettingsWindowController`'s activation path and opens while `onboarding.completedVersion` is below the current onboarding version. A milestone that adds a step bumps the version, so existing users see only the new steps.
+The onboarding window uses `SettingsWindowController`'s activation path (§4.3.5) and opens at launch while `onboarding.completedVersion` is below the current onboarding version, which is 1 in M3. A milestone that adds a step bumps the version, so existing users see only the new steps. `OnboardingModel` (Core) holds the steps and what the user chose. Finishing the last step stores the version; so does closing the window before that, because closing it is an answer too. The launch-at-login choice is applied only by finishing. A hotkey recorded on the way is registered and stored at once, as it is in Settings: the step has to register the chord to let the user try it. When the hotkey could not be registered at launch, onboarding takes the place of the Settings window that would otherwise open: its hotkey step has the recorder and shows the failure.
 
 1. **Welcome (M3).** States that OpenRay sends no telemetry.
-2. **Hotkey (M3).** The recorder, defaulting to ⌥Space, with a "Use ⌘Space" path: the user turns off Spotlight's "Show Spotlight search" shortcut themselves (UNVERIFIED: the exact labels and any deep link on macOS 26). Onboarding registers the chosen chord and asks the user to press it; the step passes when the handler fires. This works whatever `RegisterEventHotKey` does while Spotlight still holds ⌘Space (UNVERIFIED whether it returns an error or silently never fires).
+2. **Hotkey (M3).** The recorder, defaulting to ⌥Space, with a "Use ⌘Space" path: the user turns off Spotlight's "Show Spotlight search" shortcut themselves (UNVERIFIED: the exact labels and any deep link on macOS 26). Onboarding registers the chosen chord and asks the user to press it; the step passes when the handler fires. This works whatever `RegisterEventHotKey` does while Spotlight still holds ⌘Space (UNVERIFIED whether it returns an error or silently never fires). While this step is on screen a hotkey press goes to onboarding and does not open the launcher; recording another chord asks for that one to be tried in its turn. The step can be skipped, for a hotkey that cannot be pressed right now.
 3. **Launch at login (M3).** A checkbox; nothing is registered until Continue.
 4. **Clipboard history (M4).** Off by default. Turning it on here is the first pasteboard read, so any system alert appears in context (§4.5).
 5. **Updates (M6).** "Check automatically", on by default. Onboarding sets `updater.automaticallyChecksForUpdates` in both branches (§6.4).
@@ -1123,7 +1169,7 @@ The onboarding window uses `SettingsWindowController`'s activation path and open
 
 | Case | Behaviour |
 |---|---|
-| Database fails to open or migrate | `openOnDisk` logs the error, renames the file and its `-wal` and `-shm` companions by appending `.corrupt-<yyyyMMdd-HHmmss>`, and opens a fresh database. It throws only when that fails too, and the session then runs without a database, on an `InMemoryUsageStore` (§4.2.11). A one-time notice is shown from M3 on, when the HUD exists; until then the log is the only trace. From M7 on, snippets are exported from `OpenRay.sqlite` first if they can be read. |
+| Database fails to open or migrate | `openOnDisk` logs the error, renames the file and its `-wal` and `-shm` companions by appending `.corrupt-<yyyyMMdd-HHmmss>`, and opens a fresh database. It throws only when that fails too, and the session then runs on a database in memory (§4.2.11), which the HUD says at launch ("OpenRay cannot store its data. Changes last until it quits."). From M3 on `AppDatabase.wasReplaced` tells the app, which says so once in the HUD at that launch ("OpenRay's data could not be read and was reset. The old file was kept."); the next launch finds a good file and says nothing. From M7 on, snippets are exported from `OpenRay.sqlite` first if they can be read. |
 | Disk full | Writes throw; the clipboard monitor drops the clip and logs it; the launcher keeps working read-only. A pick that could not be written still counts in the usage snapshot until the app quits. |
 | Settings window opens behind other windows | One retry (§4.3.5); on the manual checklist |
 
@@ -1578,25 +1624,35 @@ public final class PosixScriptRunner: ScriptRunning {}
 public enum Permission: Sendable, Hashable { case accessibility, automation(bundleID: String) }
 public enum PermissionState: Sendable { case granted, denied, notDetermined, unknown }
 
-// App target
-@MainActor @Observable final class PermissionCenter {
+@MainActor public protocol PermissionChecking: AnyObject {
     func state(_ p: Permission) async -> PermissionState
     func request(_ p: Permission) async -> PermissionState   // shows the system prompt where one exists
     func openSystemSettings(for p: Permission)
 }
+public enum PermissionGate {                                 // what the launcher does about one required permission
+    public enum Step { case proceed, request, explain }
+    public static func step(for permission: Permission, state: PermissionState) -> Step
+}
+
+// App target
+@MainActor final class PermissionCenter: PermissionChecking {}
 ```
+
+`PermissionCenter` is the only implementation and the only code that talks to the system about permissions. Core reaches it through `PermissionChecking`, so the decisions below, the permission screen's model and the permission list of Settings are tested against a fake. It is not `@Observable` yet: it holds no state in M3, and the views observe the Core models that ask it.
 
 **Before an action runs** (§4.1.4), `LauncherModel` asks `PermissionCenter` for each required permission:
 
 - `.granted`: run.
-- Automation `.notDetermined`: close the launcher (the prompt is a system window), `request`, and run if granted.
-- Accessibility not granted, or anything `.denied`: push the shared permission screen, a custom screen that says what the permission is for, offers **Grant** (or **Open System Settings** if denied), and shows live status.
+- Automation `.notDetermined`, or `.unknown`: close the launcher (the prompt is a system window), `request`, and run if granted. `.unknown` is a target that is not running, which is the usual state of System Events; requesting launches it, and then the system either asks or already has an answer. If the answer is not `.granted`, the action does not run and the launcher stays closed. After a refusal at the prompt nothing more is said; any other answer means that macOS could not be asked, and the HUD says that the permission could not be had, because otherwise the command would seem to do nothing.
+- Accessibility not granted, or anything `.denied`: push the shared permission screen, a custom screen that says what the permission is for (the commands that need it, read off the registry's items), offers what `PermissionGate.step` says helps from the current state (**Grant** where the launcher would request, **Open System Settings** where it would explain, **Done** once the permission is granted), and shows live status by reading the state again every second while it is on screen (`ScreenContext.isOnScreen`; not while the launcher is hidden with the screen still on the stack).
+
+`PermissionGate.step` is that table as a function, and the permissions of one action are checked in a fixed order (Accessibility, then the Automation targets by bundle identifier). The permission screen belongs to `PermissionsFeature`; its request carries the permission as text (`accessibility`, `automation:<bundle id>`). In M3 `PermissionCenter` knows Automation only. Accessibility reads as `.unknown` until M4, and nothing requires it before then.
 
 Paste actions do not declare Accessibility; they degrade to copy instead (§4.1.7). Settings › General lists every permission with its state and a Grant button.
 
 **Accessibility.** `AXIsProcessTrusted()` checks the state. Grant calls `AXIsProcessTrustedWithOptions(["AXTrustedCheckOptionPrompt": true] as CFDictionary)`, using the string literal: under Swift 6, referencing the global `kAXTrustedCheckOptionPrompt` fails to compile as "not concurrency-safe". The prompt "occurs asynchronously and does not affect the return value". There is no grant notification, so `PermissionCenter` polls `AXIsProcessTrusted()` every 0.5 s while the permission screen or the pane is visible, and for two minutes after Grant. UNVERIFIED: that a grant takes effect without relaunching on macOS 26 and 27. If a later AX call returns `.apiDisabled`, the permission is marked revoked. `CGRequestPostEventAccess` is not used.
 
-**Automation.** `state` and `request` call `AEDeterminePermissionToAutomateTarget` from a `@concurrent` helper, never on the main thread (the header warns it "may take arbitrarily long" there): first with `askUserIfNeeded: false`; `errAEEventWouldRequireUserConsent` means `.notDetermined`, and `request` calls again with `true`; `errAEEventNotPermitted` means `.denied`; `procNotFound` means the target must be launched first (`AppleEventSender` does this). Denied Automation opens Privacy & Security › Automation (UNVERIFIED: the `x-apple.systempreferences:com.apple.preference.security?Privacy_Automation` link on macOS 26).
+**Automation.** `state` and `request` call `AEDeterminePermissionToAutomateTarget` from a `@concurrent` helper, never on the main thread (the header warns it "may take arbitrarily long" there): first with `askUserIfNeeded: false`; `errAEEventWouldRequireUserConsent` means `.notDetermined`, and `request` calls again with `true`; `errAEEventNotPermitted` means `.denied`; `procNotFound` means the target must be launched first (`AppleEventSender` does this). `AutomationPermission.state(forStatus:)` (Core) is that mapping; any other status reads as `.unknown`. For `procNotFound`, `request` launches the target in the background, as the sender does, and asks once more. Denied Automation opens Privacy & Security › Automation (UNVERIFIED: the `x-apple.systempreferences:com.apple.preference.security?Privacy_Automation` link on macOS 26).
 
 **Matrix.**
 
@@ -1614,7 +1670,7 @@ Paste actions do not declare Accessibility; they degrade to copy instead (§4.1.
 | Quick AI | nothing (outbound HTTPS, file-based Keychain) | — | — |
 | Auto-update | nothing | — | — |
 
-**Entitlements (release).** Only `com.apple.security.automation.apple-events = true`. Under the hardened runtime, which notarisation requires, Apple events are blocked without it even outside the sandbox. No sandbox, network-client, JIT, unsigned-memory, library-validation or dyld-environment entitlements. UNVERIFIED: whether Apple events sent by a script's `osascript` child depend on OpenRay's entitlement. Debug builds add `get-task-allow` (Xcode does this) and `com.apple.security.cs.disable-library-validation` (§6.6).
+**Entitlements.** Only `com.apple.security.automation.apple-events = true`, in `Config/OpenRay.entitlements` for both configurations from M3 on: the hardened runtime is already switched on for Debug and Release, and under it Apple events are blocked without the entitlement even outside the sandbox, so the system commands would not work in a contributor's build either. An ad-hoc-signed Debug build was checked with `codesign -d --entitlements -` to carry it. Notarisation requires the hardened runtime. No sandbox, network-client, JIT, unsigned-memory, library-validation or dyld-environment entitlements. UNVERIFIED: whether Apple events sent by a script's `osascript` child depend on OpenRay's entitlement. Debug builds add `get-task-allow` (Xcode does this) and `com.apple.security.cs.disable-library-validation` (§6.6).
 
 **Info.plist (v1).**
 
@@ -1759,8 +1815,8 @@ The designated requirement of an ad-hoc signature is a bare `cdhash` (checked wi
 |---|---|
 | 1 Launcher shell | `LauncherPanel` and its configuration (§4.1.1), the hidden main menu with its Edit menu, `HotKey`/`HotKeyCenter`/`LauncherHotKey`/recorder (§4.1.2), `KeyRouter` (§4.1.3), `LauncherState` and `LauncherModel` (§4.1.4), the value types of §4.2.1–4.2.2 in their final shape and the results list rendering `ResultSection`s from a fake `SearchSource` (§4.1.5), `FocusRestorer.restoreIfNeeded()` (§4.1.7), `DisplayGeometry` and `PanelPlacement` (§4.1.8), the latency signposts (§4.1.9, §5.3), `PreferencesStore`/`Preferences` with `launcher.hotKey` (§4.3.4), `SettingsWindowController` with the General pane (§4.3.5), the Debug bundle ID and bundle-ID-derived paths and logger (§6.6), the concurrency build settings (§3.4), the Core import check, `-OpenRayShowPanelOnLaunch`. Until M2 the model asks the one fake source directly and choosing a row only closes the launcher; until M3 ⌘K does nothing |
 | 2 App search | The `ActionContext` implementation for primary actions: `closeLauncher`, `query` and `previousApp` (§4.2.2); `CommandRegistry` without overrides, `SearchSession`, the matcher, frecency and `SQLiteUsageStore` (§4.2.4–4.2.7); GRDB, `AppDatabase` and `m2_usage` (§4.3); `AppIndexSource` over the standard roots with a primary action only, the rescan on wake and the icon cache (§4.2.8); the `indexBuild` signpost (§5.3); Core's string catalog (§5.5); running an action and pick recording in `LauncherModel` (§4.1.4, steps 3 to 5 without the HUD); the launcher composed after the database has opened (§3.2). The fake source of M1 is gone |
-| 3 Command model | Secondary actions and the ⌘K panel; overrides and the removal of colliding action shortcuts in `CommandRegistry` (§4.2.4); the secondary app actions and user-added app folders (§4.2.8); `ScreenRequest`, `ScreenSpec`, `ScreenRegistry`, `ScreenContext`, list and custom screens (§4.1.5); `Feature` and `FeatureEnvironment`; the HUD and in-panel confirmations (§4.1.6), with them `ActionContext.showHUD` and `confirm`, steps 1 and 2 of running an action and the HUD for an action's error (§4.1.4), and the notice for a database that was replaced (§4.3.8); `m3_commands` and `CommandStore`; aliases, overrides, quicklinks and the fallback section (§4.2.9); system commands, `SystemControl` and `AppleEventSender` (§4.2.10); `PermissionCenter` with Automation and the permission screen (§5.1); the Commands pane and feature panes; launch at login (§4.3.6); onboarding steps 1–3 (§4.3.7) |
-| 4 First built-ins | Calculator (§4.4); clipboard history, `m4_clipboard` and `ClipboardStore` (§4.5); `PasteService`, with it `ActionContext.copy` and `paste`, and `FocusRestorer.restore()` (§4.1.7); the `dbQuery` signpost (§5.3); Accessibility in `PermissionCenter`; onboarding steps 4 and 6 |
+| 3 Command model | Secondary actions and the ⌘K panel; overrides and the removal of colliding action shortcuts in `CommandRegistry` (§4.2.4); the secondary app actions except the two that copy, and user-added app folders (§4.2.8); `ScreenRequest`, `ScreenSpec`, `ScreenRegistry`, `ScreenContext`, list and custom screens (§4.1.5); `Feature` and `FeatureEnvironment`; the HUD and in-panel confirmations (§4.1.6), with them `ActionContext.showHUD` and `confirm`, steps 1 and 2 of running an action and the HUD for an action's error (§4.1.4), and the notice for a database that was replaced (§4.3.8); `m3_commands` and `CommandStore`; aliases, overrides, quicklinks and the fallback section (§4.2.9); system commands, `SystemControl` and `AppleEventSender` (§4.2.10); `PermissionCenter` with Automation and the permission screen (§5.1); the Commands pane and feature panes; launch at login (§4.3.6); onboarding steps 1–3 (§4.3.7) |
+| 4 First built-ins | Calculator (§4.4); clipboard history, `m4_clipboard` and `ClipboardStore` (§4.5), the first list screen (§4.1.5); `PasteService`, with it `ActionContext.copy` and `paste`, the app actions Copy Path and Copy Bundle Identifier (§4.2.8), and `FocusRestorer.restore()` (§4.1.7); the `dbQuery` signpost (§5.3); Accessibility in `PermissionCenter`; onboarding steps 4 and 6 |
 | 5 Quick AI | §4.6: provider protocol, `ClaudeProvider`, SSE parsing, `QuickAISession`, `KeychainSecretStore`, the chat screen, `tabFallback`, the "Ask AI" fallback row |
 | 6 Public v0.1 | §6: signing, notarisation, `release.yml`, Sparkle, appcast, Homebrew tap; Updates and About panes; onboarding step 5; the Core benchmark target and its CI step (§5.4); `CONTRIBUTING.md`, `PRIVACY.md`, `DEPENDENCIES.md`, `CHANGELOG.md`, `RELEASE_CHECKLIST.md` |
 | 7 More built-ins | Window management and Lock Screen (§4.7, §4.2.10), file search (§4.8), snippets and `m7_snippets` (§4.9); each ships as its own release |
@@ -1789,11 +1845,11 @@ The designated requirement of an ad-hoc signature is a bare `cdhash` (checked wi
 |---|---|---|---|
 | 1 | Panel level | Is `.screenSaver` the lowest level at which a key, transient panel works over full-screen Spaces, or does `.popUpMenu` suffice? Does the choice hide input-method candidate windows, tooltips or system prompts? Also confirm that `.nonactivatingPanel` must be set in `init`. | M1 |
 | 2 | Hotkey behaviour | On macOS 26 and 27: does ⌥Space register; do Carbon hotkeys fire under Secure Event Input and during Mission Control; does an existing non-exclusive registration make `kEventHotKeyExclusive` fail? | M1 |
-| 3 | Default hotkey | Ship ⌥Space (with the session-only ⌃⌥Space fallback of §4.1.2), or push users to ⌘Space in onboarding? Decide after item 2. | M3 |
+| 3 | Default hotkey | Ship ⌥Space (with the session-only ⌃⌥Space fallback of §4.1.2), or push users to ⌘Space in onboarding? M3 ships ⌥Space as the default and offers ⌘Space as a button in onboarding (§4.3.7), which is the cautious choice while item 2 has not been tested on a Mac. Revisit when it has. | M6 |
 | 4 | Activation and focus | Do `NSApp.activate()` for Settings and `yieldActivation`/`activate(from:)` for focus restore work reliably from an accessory app on macOS 26 and 27? Does `activate(from:)` returning `true` mean the app came forward, and when the restorer falls back to `NSApp.hide(nil)`, does the keyboard end up with the app the user expects? Is `NSApp.isActive` true while only the non-activating panel is key, as running the restorer after `orderOut` assumes (§4.1.1)? Does the hand-installed main menu survive the SwiftUI lifecycle, and do its key equivalents fire while the panel is key (the Edit menu) and in the settings window (the Edit menu and ⌘W)? | M1 |
 | 5 | List performance | Does `LazyVStack` meet 16 ms with 200 rows replaced per keystroke, and does laying out at launch warm the first show? If not, switch to `NSTableView`. | M1 |
 | 6 | Pasteboard privacy | Is the alert enforced by default on macOS 26.x and 27.2, and which calls trigger it? Run the experiment in §4.5. If even `changeCount` alerts, reconsider whether clipboard history can ship as designed. | M4 |
-| 7 | Automation targets | Does sending to loginwindow prompt? Does the Privacy_Automation settings link work on macOS 26? Test with a signed, hardened build. | M3 |
+| 7 | Automation targets | Does sending to loginwindow prompt? Does the Privacy_Automation settings link work on macOS 26? Do the events of §4.2.10 do what they should, the object specifier for dark mode in particular? M3 built all of it and could run none of it: sending an event or raising a prompt needs a person at the Mac. Test with a signed, hardened build. | M6 |
 | 8 | Lock Screen | Does a synthetic ⌃⌘Q lock the screen? If not, Lock Screen does not ship (no private API). | M7 |
 | 9 | Ranking constants | Tune H, the 0.15 and 0.25 weights and the 0.2 threshold against real sessions. Decide whether to collect sessions locally on an opt-in basis. M2 shipped the first guesses as the constants of `RankingTuning`; there were no sessions to tune against. | M6 |
 | 10 | Ignore list | Verify the bundle IDs of the default ignored apps and whether those apps already set `ConcealedType`. | M4 |
@@ -1814,4 +1870,4 @@ The designated requirement of an ad-hoc signature is a bare `cdhash` (checked wi
 | 25 | homebrew-cask | Submit once the thresholds are met, or wait for an unaffiliated contributor? | after M6 |
 | 26 | Build details | Does Xcode 26 merge a partial `INFOPLIST_FILE` with the generated plist? Are Sparkle's headers `Sendable`-annotated? | M6 |
 | 27 | Developer account | Notarisation needs a paid Apple Developer account. | M6 |
-| 28 | Screen rows and the query | A list screen's rows do not say which query they answer, so on a screen Return, ⌘1–9 and Tab act on the rows shown even in the gap after a keystroke (§4.1.4). Should `ScreenContext.setSections` name the query, so that a screen can wait as root search does? | M3 |
+| 28 | Screen rows and the query | Settled in M3: yes. `ScreenContext.setSections(_:answering:)` names the query, rows for a query the screen has left are dropped, and Return, ⌘1–9 and Tab wait on a list screen as they do at the root (§4.1.4). File search, whose answers are slow, would otherwise open the file of the previous query. The price is a contract: a list screen has to answer every query. | done |

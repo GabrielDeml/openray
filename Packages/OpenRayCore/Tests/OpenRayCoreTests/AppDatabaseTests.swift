@@ -115,6 +115,44 @@ import Testing
         try await store.record(pick: safari, query: "saf", at: start)
         let reloaded = try await SQLiteUsageStore(database: database, now: start)
         #expect(await reloaded.snapshot().frecency(of: safari, at: start) == 1)
+
+        // The app is told, so that it can tell the user; the next launch finds a good file.
+        #expect(database.wasReplaced)
+        #expect(try AppDatabase.openOnDisk(at: directory).wasReplaced == false)
+    }
+
+    @Test func databaseThatOpensWasNotReplaced() throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        #expect(try AppDatabase.openOnDisk(at: directory).wasReplaced == false)
+        #expect(try AppDatabase.inMemory().wasReplaced == false)
+    }
+
+    // The fixture is the database of a milestone 2 build that had counted three picks. It was
+    // written by that build's code, not by today's migrations.
+    @Test(.timeLimit(.minutes(1)))
+    func databaseOfMilestone2KeepsItsUsageAndGainsTheCommandTables() async throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let fixture = try #require(
+            Bundle.module.url(
+                forResource: "m2", withExtension: "sqlite", subdirectory: "Fixtures/databases"))
+        try FileManager.default.copyItem(
+            at: fixture, to: directory.appending(path: "OpenRay.sqlite"))
+
+        let database = try AppDatabase.openOnDisk(at: directory)
+
+        #expect(!database.wasReplaced)
+        let pickedAt = Date(timeIntervalSince1970: 1_780_000_000)
+        let usage = await (try SQLiteUsageStore(database: database, now: pickedAt)).snapshot()
+        #expect(usage.frecency(of: safari, at: pickedAt) == 2)
+        #expect(usage.affinity(of: safari, query: "saf", at: pickedAt) == 1)
+
+        let commands = try await CommandStore(database: database).snapshot()
+        #expect(commands.quicklinks.map(\.name) == ["Google", "DuckDuckGo"])
+        #expect(commands.fallbackOrder.count == 3)
     }
 
     // Clipboard and snippet search (milestones 4 and 7) are designed around this tokenizer, and

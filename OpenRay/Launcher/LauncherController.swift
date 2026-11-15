@@ -15,9 +15,9 @@ final class LauncherController: NSObject, NSWindowDelegate, LauncherShell {
     private let focusRestorer: FocusRestorer
     private var displays = NSScreen.screens.map { $0.geometry }
 
-    init(search: SearchSession, usage: any UsageStore, focusRestorer: FocusRestorer) {
+    init(model: LauncherModel, focusRestorer: FocusRestorer) {
         self.focusRestorer = focusRestorer
-        model = LauncherModel(search: search, usage: usage)
+        self.model = model
         keyMonitor = LauncherKeyMonitor(panel: panel, searchField: searchBar.field, model: model)
 
         let glass = NSGlassEffectView()
@@ -29,6 +29,7 @@ final class LauncherController: NSObject, NSWindowDelegate, LauncherShell {
         super.init()
 
         model.shell = self
+        searchBar.apply(model.searchBar)
         panel.delegate = self
         searchBar.onTextChange = { [unowned self] text in queryChanged(to: text) }
         NotificationCenter.default.addObserver(
@@ -134,6 +135,10 @@ final class LauncherController: NSObject, NSWindowDelegate, LauncherShell {
 
     func setSearchFieldText(_ text: String) {
         searchBar.text = text
+    }
+
+    func setSearchBar(_ appearance: SearchBarAppearance) {
+        searchBar.apply(appearance)
     }
 
     func openSettings() {

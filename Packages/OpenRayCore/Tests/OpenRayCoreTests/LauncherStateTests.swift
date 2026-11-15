@@ -171,10 +171,10 @@ extension LauncherState {
     @Test func whenTheSelectedRowDisappearsTheSelectionKeepsItsPosition() {
         var state = LauncherState()
         _ = state.apply(.push(clipboard))
-        _ = state.apply(.screenRowsChanged(rows("a", "b", "c", "d")))
+        _ = state.apply(.screenRowsChanged(rows("a", "b", "c", "d"), query: ""))
         _ = state.apply(.moveSelection(2))
 
-        let effects = state.apply(.screenRowsChanged(rows("a", "b", "d")))
+        let effects = state.apply(.screenRowsChanged(rows("a", "b", "d"), query: ""))
 
         #expect(state.top.selection == .system("d"))
         #expect(effects == [.scrollTo(.system("d"))])
@@ -183,10 +183,10 @@ extension LauncherState {
     @Test func whenTheLastRowDisappearsTheSelectionMovesToTheNewLastRow() {
         var state = LauncherState()
         _ = state.apply(.push(clipboard))
-        _ = state.apply(.screenRowsChanged(rows("a", "b", "c")))
+        _ = state.apply(.screenRowsChanged(rows("a", "b", "c"), query: ""))
         _ = state.apply(.moveSelection(2))
 
-        _ = state.apply(.screenRowsChanged(rows("a")))
+        _ = state.apply(.screenRowsChanged(rows("a"), query: ""))
 
         #expect(state.top.selection == .system("a"))
     }
@@ -204,9 +204,9 @@ extension LauncherState {
     @Test func screenRowsKeepTheSelectionByIDWhenARowIsInsertedAbove() {
         var state = LauncherState()
         _ = state.apply(.push(clipboard))
-        _ = state.apply(.screenRowsChanged(rows("old", "older")))
+        _ = state.apply(.screenRowsChanged(rows("old", "older"), query: ""))
 
-        _ = state.apply(.screenRowsChanged(rows("new", "old", "older")))
+        _ = state.apply(.screenRowsChanged(rows("new", "old", "older"), query: ""))
 
         #expect(state.top.selection == .system("old"))
     }
@@ -214,11 +214,11 @@ extension LauncherState {
     @Test func screenRowsThatAnswerANewQuerySelectTheFirstRow() {
         var state = LauncherState()
         _ = state.apply(.push(clipboard))
-        _ = state.apply(.screenRowsChanged(rows("a", "b", "c")))
+        _ = state.apply(.screenRowsChanged(rows("a", "b", "c"), query: ""))
         _ = state.apply(.moveSelection(2))
 
         _ = state.apply(.queryChanged("x"))
-        _ = state.apply(.screenRowsChanged(rows("b", "c")))
+        _ = state.apply(.screenRowsChanged(rows("b", "c"), query: "x"))
 
         #expect(state.top.selection == .system("b"))
     }
@@ -228,7 +228,7 @@ extension LauncherState {
         state.search("s", finds: rows("safari"))
         let before = state
 
-        #expect(state.apply(.screenRowsChanged(rows("x", "y"))) == [])
+        #expect(state.apply(.screenRowsChanged(rows("x", "y"), query: "")) == [])
         #expect(state == before)
     }
 
@@ -303,7 +303,7 @@ extension LauncherState {
         // First screen: "inv", with the second row selected.
         _ = state.apply(.push(clipboard))
         _ = state.apply(.queryChanged("inv"))
-        _ = state.apply(.screenRowsChanged(rows("invoice", "invite")))
+        _ = state.apply(.screenRowsChanged(rows("invoice", "invite"), query: "inv"))
         _ = state.apply(.moveSelection(1))
         // Second screen: "pre".
         _ = state.apply(.push(openWith))
@@ -381,7 +381,7 @@ extension LauncherState {
         var state = LauncherState()
         state.search("clip", finds: rows("history"))
         _ = state.apply(.push(clipboard))
-        _ = state.apply(.screenRowsChanged(rows("invoice")))
+        _ = state.apply(.screenRowsChanged(rows("invoice"), query: ""))
         _ = state.apply(.toggleActionPanel)
 
         let effects = state.apply(.escape)
@@ -395,7 +395,7 @@ extension LauncherState {
         var state = LauncherState()
         state.search("clip", finds: rows("history"))
         _ = state.apply(.push(clipboard))
-        _ = state.apply(.screenRowsChanged(rows("invoice")))
+        _ = state.apply(.screenRowsChanged(rows("invoice"), query: ""))
         _ = state.apply(.toggleActionPanel)
         // The second rung: this press only closes the action panel.
         _ = state.apply(.escape)
@@ -428,7 +428,7 @@ extension LauncherState {
         var state = LauncherState()
         state.search("clip", finds: rows("history"))
         _ = state.apply(.push(clipboard))
-        _ = state.apply(.screenRowsChanged(rows("invoice")))
+        _ = state.apply(.screenRowsChanged(rows("invoice"), query: ""))
         // Performing an action closes the action panel, so the app never has one running under
         // an open panel. The panel's rung comes first here, and the action starts after it.
         _ = state.apply(.toggleActionPanel)
@@ -525,7 +525,7 @@ extension LauncherState {
         state.tabFallback = chat
         _ = state.apply(.push(clipboard))
         _ = state.apply(.queryChanged("inv"))
-        _ = state.apply(.screenRowsChanged(rows("invoice")))
+        _ = state.apply(.screenRowsChanged(rows("invoice"), query: "inv"))
 
         #expect(state.apply(.tabComplete) == [])
         #expect(state.depth == 1)
@@ -537,7 +537,7 @@ extension LauncherState {
         let file = LauncherState.Row(
             id: .system("file"), primaryAction: ActionID(rawValue: "run-file"), tabTarget: openWith)
         _ = state.apply(.push(clipboard))
-        _ = state.apply(.screenRowsChanged([file]))
+        _ = state.apply(.screenRowsChanged([file], query: ""))
 
         #expect(state.apply(.tabComplete) == [.showScreen(openWith)])
         #expect(state.depth == 2)
@@ -1102,7 +1102,7 @@ extension LauncherState {
         _ = state.apply(.push(clipboard))
         let rootResults = state.apply(
             .resultsArrived(rows: rows("slack"), generation: state.generation))
-        let screenRows = state.apply(.screenRowsChanged(rows("invoice")))
+        let screenRows = state.apply(.screenRowsChanged(rows("invoice"), query: ""))
 
         #expect(rootResults == [])
         #expect(screenRows == [.scrollTo(.system("invoice"))])
@@ -1206,7 +1206,7 @@ extension LauncherState {
         var state = LauncherState()
         state.search("clip", finds: rows("history"))
         _ = state.apply(.push(clipboard))
-        _ = state.apply(.screenRowsChanged(rows("invoice", "receipt")))
+        _ = state.apply(.screenRowsChanged(rows("invoice", "receipt"), query: ""))
         _ = state.apply(.actionStarted)
         let before = state
 
@@ -1280,38 +1280,227 @@ extension LauncherState {
         #expect(state.top.selection == .system("slack"))
     }
 
-    // A screen's rows do not say which query they answer, so the reducer cannot tell the rows it
-    // would be waiting for from a late answer to an earlier query, or from a row that was added
-    // meanwhile. On a screen nothing waits.
-    @Test func onAScreenReturnActsOnTheRowsShownAndNothingIsKeptForLater() {
+    // A screen's rows name the query they answer, so a list screen waits the way root search
+    // does.
+    @Test func onAListScreenReturnWaitsForTheRowsOfTheCurrentQuery() {
         var state = LauncherState()
         _ = state.apply(.push(clipboard))
-        _ = state.apply(.screenRowsChanged(rows("invoice", "invite", "receipt", "recipe")))
+        _ = state.apply(
+            .screenRowsChanged(rows("invoice", "invite", "receipt", "recipe"), query: ""))
         _ = state.apply(.queryChanged("re"))
         _ = state.apply(.queryChanged("rec"))
 
         let pressed = state.apply(.performPrimary)
 
-        #expect(pressed == [.perform(ActionID(rawValue: "run-invoice"), on: .system("invoice"))])
+        #expect(pressed == [])
 
-        // The answer to "re" arrives late, while the screen is still searching for "rec".
-        let lateAnswer = state.apply(.screenRowsChanged(rows("recipe", "receipt")))
+        // The answer to "re" arrives late, while the screen is searching for "rec".
+        let lateAnswer = state.apply(.screenRowsChanged(rows("recipe", "receipt"), query: "re"))
 
-        #expect(lateAnswer == [.scrollTo(.system("recipe"))])
+        #expect(lateAnswer == [])
+        #expect(state.top.rows.count == 4)
+
+        let answer = state.apply(.screenRowsChanged(rows("receipt", "recipe"), query: "rec"))
+
+        #expect(
+            answer == [
+                .scrollTo(.system("receipt")),
+                .perform(ActionID(rawValue: "run-receipt"), on: .system("receipt")),
+            ])
     }
 
-    @Test func onAScreenTabAndTheActionPanelDoNotWaitEither() {
+    @Test func onAListScreenTabAndTheActionPanelWaitToo() {
         var state = LauncherState()
         let invoice = LauncherState.Row(id: .system("invoice"), tabTarget: openWith)
         _ = state.apply(.push(clipboard))
-        _ = state.apply(.screenRowsChanged([invoice]))
+        _ = state.apply(.screenRowsChanged([invoice], query: ""))
         _ = state.apply(.queryChanged("inv"))
 
         _ = state.apply(.toggleActionPanel)
-        #expect(state.actionPanel != nil)
+        #expect(state.actionPanel == nil)
+
+        #expect(state.apply(.tabComplete) == [])
+        let answer = state.apply(.screenRowsChanged([invoice], query: "inv"))
+
+        #expect(answer == [.showScreen(openWith)])
+    }
+
+    @Test func rootResultsUnderAScreenDoNotAnswerAnActivationWaitingOnTheScreen() {
+        var state = LauncherState()
+        state.search("clip", finds: rows("history"))
+        _ = state.apply(.push(clipboard))
+        _ = state.apply(.screenRowsChanged(rows("invoice"), query: ""))
+        _ = state.apply(.queryChanged("re"))
+        _ = state.apply(.performPrimary)
+
+        // A slow source adds a row to the root search that is still under the screen.
+        let rootUpdate = state.apply(
+            .resultsArrived(rows: rows("history", "historian"), generation: state.generation))
+
+        #expect(rootUpdate == [])
+
+        let answer = state.apply(.screenRowsChanged(rows("receipt"), query: "re"))
+
+        #expect(
+            answer == [
+                .scrollTo(.system("receipt")),
+                .perform(ActionID(rawValue: "run-receipt"), on: .system("receipt")),
+            ])
+    }
+
+    // A custom screen is sent its queries as well, but it draws itself and never answers with
+    // rows. Nothing may wait for an answer that is not coming.
+    @Test func screenThatNeverSendsRowsNeverWaits() {
+        var state = LauncherState()
+        _ = state.apply(.push(chat))
+        _ = state.apply(.queryChanged("why is the sky blue"))
+
         _ = state.apply(.toggleActionPanel)
 
-        #expect(state.apply(.tabComplete) == [.showScreen(openWith)])
+        #expect(state.actionPanel != nil)
+    }
+
+    // The first rows of a list screen can come after the user has begun to type. They are too
+    // late to show, but they still tell the reducer that this screen answers its queries.
+    @Test func staleFirstRowsStillMarkTheScreenAsOneThatAnswers() {
+        var state = LauncherState()
+        _ = state.apply(.push(clipboard))
+        _ = state.apply(.queryChanged("re"))
+
+        let lateFirstRows = state.apply(.screenRowsChanged(rows("invoice"), query: ""))
+        let pressed = state.apply(.performPrimary)
+
+        #expect(lateFirstRows == [])
+        #expect(state.top.rows.isEmpty)
+        #expect(pressed == [])
+
+        let answer = state.apply(.screenRowsChanged(rows("receipt"), query: "re"))
+
+        #expect(
+            answer == [
+                .scrollTo(.system("receipt")),
+                .perform(ActionID(rawValue: "run-receipt"), on: .system("receipt")),
+            ])
+    }
+}
+
+@Suite struct LauncherStateConfirmationTests {
+    private let emptyTrash = Confirmation(
+        title: "Empty the Trash?", message: "This cannot be undone.", confirmTitle: "Empty Trash")
+    private let restart = Confirmation(title: "Restart?", confirmTitle: "Restart")
+
+    private func launcherAskingToEmptyTheTrash() -> LauncherState {
+        var state = LauncherState()
+        state.search("tr", finds: rows("trash", "translate"))
+        _ = state.apply(.askConfirmation(emptyTrash))
+        return state
+    }
+
+    @Test func askingShowsTheQuestionAndChangesNothingElse() {
+        var state = LauncherState()
+        state.search("tr", finds: rows("trash", "translate"))
+        let before = state
+
+        let effects = state.apply(.askConfirmation(emptyTrash))
+
+        #expect(effects == [])
+        #expect(state.confirmation == emptyTrash)
+        #expect(state.top == before.top)
+    }
+
+    @Test func returnAnswersYes() {
+        var state = launcherAskingToEmptyTheTrash()
+
+        let effects = state.apply(.performPrimary)
+
+        #expect(effects == [.answerConfirmation(true)])
+        #expect(state.confirmation == nil)
+    }
+
+    @Test func escapeAnswersNoAndGoesNoFurtherDownTheLadder() {
+        var state = launcherAskingToEmptyTheTrash()
+        // The action that asks is running, and Esc would otherwise cancel it.
+        _ = state.apply(.actionStarted)
+
+        let effects = state.apply(.escape)
+
+        #expect(effects == [.answerConfirmation(false)])
+        #expect(state.confirmation == nil)
+        #expect(state.top.actionInFlight)
+        #expect(state.top.query == "tr")
+    }
+
+    @Test(arguments: [
+        LauncherIntent.moveSelection(1), .activateIndex(2), .tabComplete, .toggleActionPanel,
+        .back, .openSettings, .push(clipboard), .performAction(ActionID(rawValue: "reveal")),
+    ])
+    func nothingElseTheUserDoesGetsPastTheQuestion(_ intent: LauncherIntent) {
+        var state = launcherAskingToEmptyTheTrash()
+        let before = state
+
+        #expect(state.apply(intent) == [])
+        #expect(state == before)
+    }
+
+    @Test func hidingAnswersNo() {
+        var state = launcherAskingToEmptyTheTrash()
+
+        let effects = state.apply(.didHide)
+
+        #expect(effects == [.answerConfirmation(false)])
+        #expect(state.confirmation == nil)
+    }
+
+    @Test func showingAgainAnswersNoBeforeItStartsOver() {
+        var state = launcherAskingToEmptyTheTrash()
+
+        let effects = state.apply(.willShow)
+
+        #expect(effects.first == .answerConfirmation(false))
+        #expect(effects.contains(.focusSearchField))
+        #expect(state.confirmation == nil)
+    }
+
+    @Test func questionDropsAReturnThatWasWaitingForResults() {
+        var state = LauncherState()
+        state.search("tr", finds: rows("trash"))
+        _ = state.apply(.queryChanged("tra"))
+        _ = state.apply(.performPrimary)
+
+        _ = state.apply(.askConfirmation(emptyTrash))
+        let arrived = state.apply(
+            .resultsArrived(rows: rows("translate"), generation: state.generation))
+
+        // The rows arrive behind the question and nothing is performed on them.
+        #expect(arrived == [.scrollTo(.system("translate"))])
+    }
+
+    @Test func secondQuestionAnswersTheFirstWithNo() {
+        var state = launcherAskingToEmptyTheTrash()
+
+        let effects = state.apply(.askConfirmation(restart))
+
+        #expect(effects == [.answerConfirmation(false)])
+        #expect(state.confirmation == restart)
+    }
+
+    @Test func resultsStillArriveBehindTheQuestion() {
+        var state = launcherAskingToEmptyTheTrash()
+
+        _ = state.apply(.resultsArrived(rows: rows("trash"), generation: state.generation))
+
+        #expect(state.top.rows == rows("trash"))
+        #expect(state.confirmation == emptyTrash)
+    }
+
+    @Test func outcomeOfTheActionThatAskedStillApplies() {
+        var state = launcherAskingToEmptyTheTrash()
+        _ = state.apply(.actionStarted)
+        _ = state.apply(.performPrimary)
+
+        let effects = state.apply(.actionFinished(.closeLauncher, serial: state.actionSerial))
+
+        #expect(effects == [.hide])
     }
 }
 

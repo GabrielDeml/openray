@@ -30,7 +30,8 @@ final class ShellSearchField: NSTextField {
     }
 }
 
-/// The top of the launcher: a search icon and the search field.
+/// The top of the launcher: an icon and the search field, or the title of a screen that does
+/// without the field.
 final class SearchBarView: NSView, NSTextFieldDelegate {
     static let height: CGFloat = 56
 
@@ -38,21 +39,27 @@ final class SearchBarView: NSView, NSTextFieldDelegate {
     /// Called when the user edits the text, not when `text` is set.
     var onTextChange: ((String) -> Void)?
 
+    private let icon = NSImageView()
+    /// Stands in the field's place while a screen hides the field.
+    private let titleLabel = NSTextField(labelWithString: "")
+
     init() {
         super.init(frame: .zero)
-        field.placeholderString = String(localized: "Search for apps and commands…")
         // The placeholder names the field only while it is empty. The label goes on the cell,
         // which is the field's accessibility element.
         field.cell?.setAccessibilityLabel(String(localized: "Search"))
         field.delegate = self
 
-        let icon = NSImageView()
-        icon.image = NSImage(systemSymbolName: "magnifyingglass", accessibilityDescription: nil)
         icon.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 18, weight: .medium)
         icon.contentTintColor = .secondaryLabelColor
         icon.setContentHuggingPriority(.required, for: .horizontal)
 
-        for view in [icon, field] {
+        titleLabel.font = field.font
+        titleLabel.textColor = .labelColor
+        titleLabel.lineBreakMode = .byTruncatingTail
+        titleLabel.isHidden = true
+
+        for view in [icon, field, titleLabel] {
             view.translatesAutoresizingMaskIntoConstraints = false
             addSubview(view)
         }
@@ -63,7 +70,33 @@ final class SearchBarView: NSView, NSTextFieldDelegate {
             field.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 10),
             field.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -20),
             field.centerYAnchor.constraint(equalTo: centerYAnchor),
+            titleLabel.leadingAnchor.constraint(equalTo: field.leadingAnchor),
+            titleLabel.trailingAnchor.constraint(equalTo: field.trailingAnchor),
+            titleLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
+    }
+
+    /// Makes the bar look as the model asks: the placeholder, a back arrow on a screen, and the
+    /// screen's title in place of a field the screen hides.
+    func apply(_ appearance: SearchBarAppearance) {
+        field.placeholderString = appearance.placeholder
+
+        let isOnAScreen = appearance.screenTitle != nil
+        let symbolName = isOnAScreen ? "chevron.left" : "magnifyingglass"
+        icon.image = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil)
+
+        titleLabel.stringValue = appearance.screenTitle ?? ""
+        titleLabel.isHidden = !appearance.isFieldHidden
+
+        let fieldWasHidden = field.isHidden
+        field.isHidden = appearance.isFieldHidden
+        if appearance.isFieldHidden {
+            // A hidden field must not go on taking what is typed.
+            window?.makeFirstResponder(nil)
+        } else if fieldWasHidden {
+            window?.makeFirstResponder(field)
+            moveInsertionPointToEnd()
+        }
     }
 
     @available(*, unavailable)
@@ -78,9 +111,13 @@ final class SearchBarView: NSView, NSTextFieldDelegate {
             field.stringValue = newValue
             // Replacing the text of a field that is being edited selects it all. Put the
             // insertion point at the end instead.
-            let endOfText = NSRange(location: newValue.utf16.count, length: 0)
-            field.currentEditor()?.selectedRange = endOfText
+            moveInsertionPointToEnd()
         }
+    }
+
+    private func moveInsertionPointToEnd() {
+        let endOfText = NSRange(location: field.stringValue.utf16.count, length: 0)
+        field.currentEditor()?.selectedRange = endOfText
     }
 
     func controlTextDidChange(_ notification: Notification) {

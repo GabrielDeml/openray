@@ -3,7 +3,10 @@
 An open-source launcher for macOS: summon it with a hotkey, type, and act.
 
 OpenRay is still early. Right now a global hotkey opens the launcher, and it
-finds and opens the apps on your Mac, ranking them by what you pick. See
+finds and opens the apps on your Mac, ranking them by what you pick. It also
+runs system commands such as Sleep and Empty Trash, opens quicklinks with what
+you type, and lists more actions for the selected result with ⌘K. Aliases,
+quicklinks and launch at login are set up in its settings window. See
 [ROADMAP.md](ROADMAP.md) for what is planned and in what order, and
 [docs/DESIGN.md](docs/DESIGN.md) for how it is built.
 
@@ -38,6 +41,7 @@ swift test --package-path Packages/OpenRayCore
 - `OpenRay/` is the app target: windows, views and system integration.
 - `Packages/OpenRayCore/` is the core logic: matching, ranking, the command
   model and storage.
+- `Config/` holds the app's entitlements.
 
 ## Licence
 
