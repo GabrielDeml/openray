@@ -54,33 +54,7 @@ enum HotKeyFormatter {
 
     /// What the key types on the current keyboard layout, in upper case.
     private static func layoutCharacter(for keyCode: UInt32) -> String? {
-        guard let source = TISCopyCurrentKeyboardLayoutInputSource()?.takeRetainedValue(),
-            let property = TISGetInputSourceProperty(source, kTISPropertyUnicodeKeyLayoutData)
-        else { return nil }
-        // The property comes back as an untyped pointer to a `CFData` that the input source owns.
-        let layout = Unmanaged<CFData>.fromOpaque(property).takeUnretainedValue() as Data
-
-        let noModifiers: UInt32 = 0
-        var deadKeyState: UInt32 = 0
-        var length = 0
-        var characters = [UniChar](repeating: 0, count: 4)
-        let status = layout.withUnsafeBytes { bytes in
-            UCKeyTranslate(
-                bytes.bindMemory(to: UCKeyboardLayout.self).baseAddress,
-                UInt16(keyCode),
-                UInt16(kUCKeyActionDisplay),
-                noModifiers,
-                UInt32(LMGetKbdType()),
-                OptionBits(kUCKeyTranslateNoDeadKeysMask),
-                &deadKeyState,
-                characters.count,
-                &length,
-                &characters
-            )
-        }
-        guard status == noErr else { return nil }
-        let name = String(utf16CodeUnits: characters, count: length)
-            .trimmingCharacters(in: .whitespacesAndNewlines.union(.controlCharacters))
-        return name.isEmpty ? nil : name.uppercased()
+        guard let keyCode = UInt16(exactly: keyCode) else { return nil }
+        return KeyboardLayout.characters(forKeyCode: keyCode)?.uppercased()
     }
 }

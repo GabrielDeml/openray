@@ -27,6 +27,17 @@ public struct HotKey: Codable, Hashable, Sendable {
             if flags & (1 << 19) != 0 { insert(.option) }
             if flags & (1 << 20) != 0 { insert(.command) }
         }
+
+        /// The modifiers as Carbon has them, in `RegisterEventHotKey` and `UCKeyTranslate`.
+        public var carbonModifiers: UInt32 {
+            // cmdKey, shiftKey, optionKey and controlKey from Events.h (HIToolbox).
+            var carbon: UInt32 = 0
+            if contains(.command) { carbon |= 1 << 8 }
+            if contains(.shift) { carbon |= 1 << 9 }
+            if contains(.option) { carbon |= 1 << 11 }
+            if contains(.control) { carbon |= 1 << 12 }
+            return carbon
+        }
     }
 
     public enum Validation: Sendable, Equatable {
@@ -45,13 +56,7 @@ public struct HotKey: Codable, Hashable, Sendable {
 
     /// The modifiers as `RegisterEventHotKey` expects them.
     public var carbonModifiers: UInt32 {
-        // cmdKey, shiftKey, optionKey and controlKey from Events.h (HIToolbox).
-        var carbon: UInt32 = 0
-        if modifiers.contains(.command) { carbon |= 1 << 8 }
-        if modifiers.contains(.shift) { carbon |= 1 << 9 }
-        if modifiers.contains(.option) { carbon |= 1 << 11 }
-        if modifiers.contains(.control) { carbon |= 1 << 12 }
-        return carbon
+        modifiers.carbonModifiers
     }
 
     public func validate() -> Validation {

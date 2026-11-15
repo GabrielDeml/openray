@@ -259,7 +259,7 @@ public final class AppIndexSource: SearchSource {
                     // with an alias arrow, and `/Applications/Safari.app` is one.
                     icon: .file(path: app.resolvedPath),
                     kindLabel: kindLabel,
-                    actions: actions(forAppAt: app.path, named: app.displayName, id: id))
+                    actions: actions(for: app, id: id))
                 items.append(item)
             }
         }
@@ -313,17 +313,21 @@ public final class AppIndexSource: SearchSource {
     // MARK: Actions
 
     /// What can be done with an app, Open first. The second action gets ⌘↩ from the launcher.
-    private func actions(
-        forAppAt path: String, named name: String, id: ItemID
-    ) -> [ActionDescriptor] {
-        let url = URL(filePath: path, directoryHint: .isDirectory)
-        return [
+    private func actions(for app: ScannedApp, id: ItemID) -> [ActionDescriptor] {
+        let url = URL(filePath: app.path, directoryHint: .isDirectory)
+        var actions = [
             openAction(for: url),
             showInFinderAction(for: url),
-            quitAction(for: url, named: name),
-            addAliasAction(for: id),
-            hideAction(for: id, named: name),
+            quitAction(for: url, named: app.displayName),
+            copyPathAction(for: app.path),
         ]
+        // A bundle with an unreadable `Info.plist` has no identifier to copy.
+        if let bundleID = app.bundleID {
+            actions.append(copyBundleIdentifierAction(for: bundleID))
+        }
+        actions.append(addAliasAction(for: id))
+        actions.append(hideAction(for: id, named: app.displayName))
+        return actions
     }
 
     private func openAction(for url: URL) -> ActionDescriptor {
@@ -376,6 +380,35 @@ public final class AppIndexSource: SearchSource {
             )
             context.showHUD(message)
             return .keepOpen
+        }
+    }
+
+    /// Copies the path the app was found under, which is the one the user sees in Finder. For
+    /// Safari that is `/Applications/Safari.app` and not where the link leads.
+    private func copyPathAction(for path: String) -> ActionDescriptor {
+        let title = String(
+            localized: "Copy Path", bundle: .module,
+            comment: "The action that copies the selected app's file path.")
+
+        return ActionDescriptor(
+            id: ActionID(rawValue: "copy-path"), title: title, icon: .symbol("doc.on.doc")
+        ) { context in
+            context.copy(.text(path, cursorOffsetFromEnd: nil))
+            return .copiedToClipboard
+        }
+    }
+
+    private func copyBundleIdentifierAction(for bundleID: String) -> ActionDescriptor {
+        let title = String(
+            localized: "Copy Bundle Identifier", bundle: .module,
+            comment: "The action that copies the selected app's bundle identifier.")
+
+        return ActionDescriptor(
+            id: ActionID(rawValue: "copy-bundle-identifier"), title: title,
+            icon: .symbol("doc.on.doc")
+        ) { context in
+            context.copy(.text(bundleID, cursorOffsetFromEnd: nil))
+            return .copiedToClipboard
         }
     }
 

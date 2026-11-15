@@ -128,7 +128,8 @@ import Testing
         // Open is first, which makes it what Return runs.
         #expect(
             item.actions.map(\.title) == [
-                "Open", "Show in Finder", "Quit", "Add Alias…", "Hide from Root Search",
+                "Open", "Show in Finder", "Quit", "Copy Path", "Copy Bundle Identifier",
+                "Add Alias…", "Hide from Root Search",
             ])
         #expect(item.actions.first?.id == ActionID(rawValue: "open"))
     }
@@ -673,6 +674,43 @@ import Testing
 
         #expect(outcome == .keepOpen)
         #expect(host.context.hudMessages == ["Lantern is not running"])
+    }
+
+    @MainActor @Test func copyPathCopiesThePathTheAppWasFoundUnder() async throws {
+        // Found through a link, as Safari is in `/Applications`. The path to copy is the
+        // link's, which is the one Finder shows, and not where it leads.
+        try makeApp("Elsewhere/Lantern.app", bundleID: "com.example.lantern")
+        try makeFolder("Apps")
+        try makeLink("Apps/Lantern.app", to: "Elsewhere/Lantern.app")
+        let items = await items(inRoots: ["Apps"])
+        let copyPath = try #require(
+            items.first?.actions.first { $0.id == ActionID(rawValue: "copy-path") })
+        let context = FakeActionContext()
+
+        let outcome = try await copyPath.perform(context)
+
+        #expect(context.copied == [.text(path("Apps/Lantern.app"), cursorOffsetFromEnd: nil)])
+        #expect(outcome == .copiedToClipboard)
+    }
+
+    @MainActor @Test func copyBundleIdentifierCopiesTheIdentifier() async throws {
+        let host = RecordingHost()
+        let copyIdentifier = try await lanternAction("copy-bundle-identifier", host: host)
+
+        let outcome = try await copyIdentifier.perform(host.context)
+
+        #expect(host.context.copied == [.text("com.example.lantern", cursorOffsetFromEnd: nil)])
+        #expect(outcome == .copiedToClipboard)
+    }
+
+    @Test func appWithoutABundleIdentifierHasNoActionToCopyOne() async throws {
+        try makeApp("Apps/Nameless.app", bundleID: nil)
+
+        let items = await items(inRoots: ["Apps"])
+
+        let actionIDs = try #require(items.first).actions.map(\.id.rawValue)
+        #expect(actionIDs.contains("copy-path"))
+        #expect(!actionIDs.contains("copy-bundle-identifier"))
     }
 
     @MainActor @Test func addAliasOpensSettingsOnTheApp() async throws {

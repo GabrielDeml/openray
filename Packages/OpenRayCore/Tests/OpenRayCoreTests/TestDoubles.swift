@@ -11,9 +11,14 @@ import OpenRayCore
     /// What `confirm` answers.
     var confirmationAnswer = true
 
+    /// What `paste` answers.
+    var pasteResult = PasteResult.pasted
+
     private(set) var closeLauncherCount = 0
     private(set) var hudMessages: [String] = []
     private(set) var confirmations: [Confirmation] = []
+    private(set) var copied: [PasteContent] = []
+    private(set) var pasted: [PasteContent] = []
 
     init(query: String = "") {
         self.query = query
@@ -32,10 +37,13 @@ import OpenRayCore
         return confirmationAnswer
     }
 
-    func copy(_ content: PasteContent) {}
+    func copy(_ content: PasteContent) {
+        copied.append(content)
+    }
 
     func paste(_ content: PasteContent) async -> PasteResult {
-        .copiedOnly(.noTarget)
+        pasted.append(content)
+        return pasteResult
     }
 }
 

@@ -177,8 +177,17 @@ import Testing
             // Scalar by scalar, as the matcher compares them. Two strings are already equal
             // when they only look the same.
             let queryScalars = Array(SearchQuery(name).normalized.unicodeScalars)
-            #expect(NormalizedName(name).scalars == queryScalars)
+            let nameScalars = NormalizedName(name).scalars
+            // A failure here is rare and depends on the name, so the message carries the
+            // name and both foldings.
+            #expect(
+                nameScalars == queryScalars,
+                "\(name): the name folds to \(hex(nameScalars)), the query to \(hex(queryScalars))")
         }
+    }
+
+    private func hex(_ scalars: [Unicode.Scalar]) -> [String] {
+        scalars.map { scalar in String(scalar.value, radix: 16) }
     }
 
     // A file name is listed from the disk in decomposed form, and an input method types

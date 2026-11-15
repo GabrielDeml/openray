@@ -38,6 +38,11 @@ final class HUDController {
 
     /// Shows `text`, replacing a message that is still up.
     func show(_ text: String) {
+        // A focus restore that found no app to go back to has hidden OpenRay, and a hidden
+        // app keeps all its windows off screen, this one included.
+        if NSApp.isHidden {
+            NSApp.unhideWithoutActivation()
+        }
         hostingView.rootView = HUDView(text: text)
         let size = hostingView.fittingSize
         panel.setFrame(frame(forMessageOfSize: size), display: true)

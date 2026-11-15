@@ -31,6 +31,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var wantsSettingsOnceComposed = false
     private var paneWantedOnceComposed: SettingsPane.ID?
 
+    #if DEBUG
+        /// Only in a run that was started for the pasteboard privacy experiment.
+        private var pasteboardProbe: PasteboardProbeWindowController?
+    #endif
+
     override init() {
         preferences = Preferences(store: preferencesStore)
         launcherHotKey = LauncherHotKey(registrar: hotKeys, preferences: preferences)
@@ -48,6 +53,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.mainMenu = MainMenu.make(appDelegate: self)
+
+        #if DEBUG
+            // The pasteboard privacy experiment (docs/DESIGN.md §4.5). Such a run is the probe
+            // window and nothing else: no hotkey, no database and no launcher, so that it
+            // neither gets in the way of a copy of OpenRay that is in use nor touches the
+            // pasteboard by any other path than the probe's buttons.
+            let arguments = ProcessInfo.processInfo.arguments
+            if arguments.contains(PasteboardProbeWindowController.launchArgument) {
+                let probe = PasteboardProbeWindowController()
+                pasteboardProbe = probe
+                probe.show()
+                return
+            }
+        #endif
+
         hotKeys.onPress = { [unowned self] _, eventTime in hotKeyPressed(at: eventTime) }
         launcherHotKey.registerAtLaunch()
 
@@ -98,12 +118,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         let registry = CommandRegistry(sources: sources, commands: commands)
         let search = SearchSession(registry: registry, usage: storage.usage, now: { Date() })
+        let pasteHost = MacPasteHost(focusRestorer: focusRestorer, hud: hud)
+        let pasteService = PasteService(
+            host: pasteHost, permissions: permissions, preferences: preferences)
         let model = LauncherModel(
             search: search, usage: storage.usage,
             screenRegistry: ScreenRegistry(features: features, env: env),
-            permissions: permissions, hud: hud)
+            permissions: permissions, hud: hud, pasteService: pasteService)
         let launcher = LauncherController(model: model, focusRestorer: focusRestorer)
         launcher.onOpenSettings = { [unowned self] in showSettings() }
+        pasteHost.launcher = launcher
 
         let commandsSettings = CommandsSettingsModel(
             commands: commands, currentItems: currentItems)

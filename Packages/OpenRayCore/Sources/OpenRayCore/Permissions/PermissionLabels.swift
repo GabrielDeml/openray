@@ -49,9 +49,11 @@ extension PermissionState {
                 localized: "Allowed", bundle: .module,
                 comment: "The state of a permission the user has granted.")
         case .denied:
+            // Not "Denied": Accessibility reads like this before the user was ever asked,
+            // because macOS does not say whether it has asked.
             return String(
-                localized: "Denied", bundle: .module,
-                comment: "The state of a permission the user has refused.")
+                localized: "Not allowed", bundle: .module,
+                comment: "The state of a permission OpenRay does not have.")
         case .notDetermined:
             return String(
                 localized: "Not asked yet", bundle: .module,

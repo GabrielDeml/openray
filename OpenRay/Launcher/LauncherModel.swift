@@ -82,6 +82,7 @@ final class LauncherModel {
     @ObservationIgnored private let screenRegistry: ScreenRegistry
     @ObservationIgnored private let permissions: any PermissionChecking
     @ObservationIgnored private let hud: HUDController
+    @ObservationIgnored private let pasteService: PasteService
     /// The action that was started last. Esc cancels it while its frame waits for it.
     @ObservationIgnored private var actionTask: Task<Void, Never>?
     @ObservationIgnored private var announcementTask: Task<Void, Never>?
@@ -90,13 +91,14 @@ final class LauncherModel {
 
     init(
         search: SearchSession, usage: any UsageStore, screenRegistry: ScreenRegistry,
-        permissions: any PermissionChecking, hud: HUDController
+        permissions: any PermissionChecking, hud: HUDController, pasteService: PasteService
     ) {
         self.search = search
         self.usage = usage
         self.screenRegistry = screenRegistry
         self.permissions = permissions
         self.hud = hud
+        self.pasteService = pasteService
         search.onResults = { [weak self] results in
             self?.receive(results)
         }
@@ -311,7 +313,8 @@ final class LauncherModel {
 
     private func show(_ request: ScreenRequest) {
         // A screen starts with an empty search field, and that is the query its actions see.
-        let actionContext = LauncherActionContext(query: "", model: self)
+        let actionContext = LauncherActionContext(
+            query: "", model: self, pasteService: pasteService)
         let context = LauncherScreenContext(
             request: request, model: self, actionContext: actionContext)
 
@@ -440,7 +443,8 @@ final class LauncherModel {
     private func perform(_ actionID: ActionID, on itemID: ItemID?) {
         guard let target = target(of: actionID, on: itemID) else { return }
         let query = state.top.query
-        let context = LauncherActionContext(query: query, model: self)
+        let context = LauncherActionContext(
+            query: query, model: self, pasteService: pasteService)
 
         // The frame has to wait for the action before anything here can suspend, so that a
         // second Return does not start it again. That covers the confirmation and the

@@ -118,8 +118,18 @@ import Testing
         let model = makeModel()
 
         #expect(OnboardingModel.isNeeded(completedVersion: 0))
-        #expect(model.steps == [.welcome, .hotKey, .launchAtLogin])
+        #expect(model.steps == [.welcome, .hotKey, .launchAtLogin, .permissions])
         #expect(model.currentStep == .welcome)
+    }
+
+    @Test func userOfAnEarlierVersionSeesOnlyTheStepsAddedSince() {
+        preferences.onboardingCompletedVersion = 1
+
+        let model = makeModel()
+
+        #expect(OnboardingModel.isNeeded(completedVersion: 1))
+        #expect(model.steps == [.permissions])
+        #expect(model.isOnLastStep)
     }
 
     @Test func userWhoHasCompletedThisVersionSeesNothing() {
@@ -168,37 +178,66 @@ import Testing
         #expect(model.currentStep == .welcome)
     }
 
-    @Test func finishingStoresTheVersionAndRegistersTheLoginItemOnlyThen() {
+    @Test func loginItemIsRegisteredByContinueOnItsStepAndNotByTheCheckbox() {
         let model = makeModel()
         model.advance()
         model.advance()
         #expect(model.currentStep == .launchAtLogin)
-        #expect(model.isOnLastStep)
 
         model.wantsLaunchAtLogin = true
         // Ticking the box registers nothing.
         #expect(loginController.status == .disabled)
+
+        model.advance()
+
+        #expect(loginController.status == .enabled)
+        #expect(model.currentStep == .permissions)
+    }
+
+    @Test func goingBackAndClearingTheCheckboxTakesTheLoginItemAwayAgain() {
+        let model = makeModel()
+        model.advance()
+        model.advance()
+        model.wantsLaunchAtLogin = true
+        model.advance()
+
+        model.goBack()
+        model.wantsLaunchAtLogin = false
+        model.advance()
+
+        #expect(loginController.status == .disabled)
+    }
+
+    @Test func checkboxStartsAsTheLoginItemIs() {
+        loginController.status = .enabled
+
+        let model = makeModel()
+        #expect(model.wantsLaunchAtLogin)
+
+        // Continue with the box as it was leaves the login item alone.
+        for _ in model.steps {
+            model.advance()
+        }
+        #expect(loginController.status == .enabled)
+    }
+
+    @Test func finishingTheLastStepStoresTheVersion() {
+        let model = makeModel()
+        model.advance()
+        model.advance()
+        model.advance()
+        #expect(model.isOnLastStep)
+        #expect(!model.isFinished)
         #expect(preferences.onboardingCompletedVersion == 0)
 
         model.advance()
 
         #expect(model.isFinished)
-        #expect(loginController.status == .enabled)
+        #expect(loginController.status == .disabled)
         #expect(preferences.onboardingCompletedVersion == OnboardingModel.currentVersion)
     }
 
-    @Test func finishingWithTheBoxUntickedRegistersNothing() {
-        let model = makeModel()
-        model.advance()
-        model.advance()
-
-        model.advance()
-
-        #expect(model.isFinished)
-        #expect(loginController.status == .disabled)
-    }
-
-    @Test func closingTheWindowEndsOnboardingWithoutApplyingTheChoice() {
+    @Test func closingTheWindowEndsOnboardingWithoutApplyingAnUnconfirmedChoice() {
         let model = makeModel()
         model.wantsLaunchAtLogin = true
 
@@ -207,6 +246,21 @@ import Testing
         #expect(model.isFinished)
         #expect(loginController.status == .disabled)
         #expect(preferences.onboardingCompletedVersion == OnboardingModel.currentVersion)
+    }
+
+    // The page after the checkbox is only text, and closing the window there must not lose
+    // what Continue confirmed on the page before.
+    @Test func closingTheWindowOnALaterStepKeepsTheConfirmedChoice() {
+        let model = makeModel()
+        model.advance()
+        model.advance()
+        model.wantsLaunchAtLogin = true
+        model.advance()
+
+        model.dismiss()
+
+        #expect(model.isFinished)
+        #expect(loginController.status == .enabled)
     }
 
     @Test func hotKeyAfterTheEndIsTheLaunchersAgain() {

@@ -19,6 +19,8 @@ public enum OnboardingStep: Sendable, Equatable, CaseIterable {
     case welcome
     case hotKey
     case launchAtLogin
+    /// Text only: which permissions OpenRay can use and that each is asked for at first use.
+    case permissions
 
     /// The onboarding version that added the step. A milestone that adds a step raises
     /// `OnboardingModel.currentVersion` and gives the new step that number, so that people who
@@ -26,21 +28,23 @@ public enum OnboardingStep: Sendable, Equatable, CaseIterable {
     var introducedInVersion: Int {
         switch self {
         case .welcome, .hotKey, .launchAtLogin: return 1
+        case .permissions: return 2
         }
     }
 }
 
 /// Walks a user through the onboarding steps they have not seen.
 @MainActor @Observable public final class OnboardingModel {
-    public static let currentVersion = 1
+    public static let currentVersion = 2
 
     /// The steps this user is shown, in order. Never empty while onboarding is needed.
     public let steps: [OnboardingStep]
     public private(set) var stepIndex = 0
     /// Whether the user pressed the hotkey while the hotkey step asked them to.
     public private(set) var hotKeyWasPressed = false
-    /// The checkbox of the launch-at-login step. Nothing is registered until the end.
-    public var wantsLaunchAtLogin = false
+    /// The checkbox of the launch-at-login step. It starts as macOS has it, and nothing is
+    /// registered or removed until Continue on that step.
+    public var wantsLaunchAtLogin: Bool
     /// True once the user has been through every step or has closed the window.
     public private(set) var isFinished = false
 
@@ -50,6 +54,7 @@ public enum OnboardingStep: Sendable, Equatable, CaseIterable {
     public init(preferences: Preferences, loginItem: LoginItemModel) {
         self.preferences = preferences
         self.loginItem = loginItem
+        wantsLaunchAtLogin = loginItem.isOn
         steps = Self.steps(after: preferences.onboardingCompletedVersion)
     }
 
@@ -95,8 +100,15 @@ public enum OnboardingStep: Sendable, Equatable, CaseIterable {
 
     /// Continue, and Skip on the hotkey step: the next step, or the end after the last.
     public func advance() {
+        // Continue is what confirms the checkbox. Waiting for the last step with it would
+        // lose the choice of someone who closes the window on a later page.
+        if currentStep == .launchAtLogin && wantsLaunchAtLogin != loginItem.isOn {
+            // A failure is kept by the login item model, and the General pane shows it.
+            loginItem.setEnabled(wantsLaunchAtLogin)
+        }
+
         if isOnLastStep {
-            finish()
+            markCompleted()
         } else {
             stepIndex += 1
         }
@@ -111,16 +123,6 @@ public enum OnboardingStep: Sendable, Equatable, CaseIterable {
     /// The window was closed before the last step. That is an answer too: the steps are not
     /// shown again, and nothing the user had not confirmed with Continue is applied.
     public func dismiss() {
-        if isFinished { return }
-        markCompleted()
-    }
-
-    private func finish() {
-        if isFinished { return }
-        if wantsLaunchAtLogin {
-            // A failure is kept by the login item model, and the General pane shows it.
-            loginItem.setEnabled(true)
-        }
         markCompleted()
     }
 

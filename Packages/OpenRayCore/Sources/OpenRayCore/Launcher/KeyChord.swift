@@ -50,6 +50,7 @@ public enum VirtualKey {
     public static let delete: UInt16 = 0x33  // kVK_Delete
     public static let escape: UInt16 = 0x35  // kVK_Escape
     public static let keypadEnter: UInt16 = 0x4C  // kVK_ANSI_KeypadEnter
+    public static let leftArrow: UInt16 = 0x7B  // kVK_LeftArrow
     public static let downArrow: UInt16 = 0x7D  // kVK_DownArrow
     public static let upArrow: UInt16 = 0x7E  // kVK_UpArrow
 

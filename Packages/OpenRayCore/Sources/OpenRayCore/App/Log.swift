@@ -21,4 +21,7 @@ public enum Signposts {
     public static let keystrokeToResults: StaticString = "keystrokeToResults"
     /// Building one `IndexSnapshot` from the items of every source.
     public static let indexBuild: StaticString = "indexBuild"
+    /// One read or write of a database, from the request to its answer. The interval's message
+    /// names the query.
+    public static let dbQuery: StaticString = "dbQuery"
 }

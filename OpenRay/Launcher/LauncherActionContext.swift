@@ -2,21 +2,22 @@ import OpenRayCore
 
 /// What a running action can ask of the launcher (docs/DESIGN.md §4.2.2). One is made for each
 /// action that is performed, and one for each screen.
-///
-/// `copy` and `paste` do nothing until `PasteService` exists; no action calls them yet.
 final class LauncherActionContext: ActionContext {
     /// The query of the frame the action was started from, as it was at that moment.
     let query: String
+    /// The app the launcher was open over at that moment. An action that pastes after a
+    /// wait, by which time the launcher may have been opened over another app, still means
+    /// this one.
+    let previousApp: AppRef?
 
     private weak var model: LauncherModel?
+    private let pasteService: PasteService
 
-    init(query: String, model: LauncherModel) {
+    init(query: String, model: LauncherModel, pasteService: PasteService) {
         self.query = query
         self.model = model
-    }
-
-    var previousApp: AppRef? {
-        model?.shell?.previousApp
+        self.pasteService = pasteService
+        previousApp = model.shell?.previousApp
     }
 
     func closeLauncher() {
@@ -33,11 +34,11 @@ final class LauncherActionContext: ActionContext {
         return await model.confirm(confirmation)
     }
 
-    func copy(_ content: PasteContent) {}
+    func copy(_ content: PasteContent) {
+        pasteService.copy(content)
+    }
 
     func paste(_ content: PasteContent) async -> PasteResult {
-        // Nothing is pasted and nothing is copied either; the result only holds the place,
-        // because `PasteResult` has no case for that.
-        .copiedOnly(.noTarget)
+        await pasteService.paste(content, into: previousApp)
     }
 }

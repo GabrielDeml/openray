@@ -12,6 +12,7 @@ enum BuiltInFeatures {
             AppsFeature(),
             SystemCommandsFeature(),
             QuicklinksFeature(),
+            CalculatorFeature(),
             OpenRayFeature(),
             PermissionsFeature(),
         ]

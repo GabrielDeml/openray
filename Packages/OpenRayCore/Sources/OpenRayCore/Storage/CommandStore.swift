@@ -12,7 +12,7 @@ public struct CommandStore: Sendable {
     }
 
     public func snapshot() async throws -> CommandOverrides {
-        try await database.writer.read { db in
+        try await database.read("commands.snapshot") { db in
             try Self.fetchOverrides(db)
         }
     }
@@ -59,7 +59,7 @@ public struct CommandStore: Sendable {
         }
         let storedAliases = foldedAliases
 
-        try await database.writer.write { db in
+        try await database.write("commands.setAliases") { db in
             try db.execute(sql: "DELETE FROM alias WHERE item_id = ?", arguments: [id.rawValue])
             for storedAlias in storedAliases {
                 try db.execute(
@@ -78,7 +78,7 @@ public struct CommandStore: Sendable {
     public func updateOverride(
         for id: ItemID, _ change: @escaping @Sendable (inout ItemOverride) -> Void
     ) async throws {
-        try await database.writer.write { db in
+        try await database.write("commands.updateOverride") { db in
             let stored = try Row.fetchOne(
                 db, sql: "SELECT hidden, disabled FROM item_override WHERE item_id = ?",
                 arguments: [id.rawValue])
@@ -105,7 +105,7 @@ public struct CommandStore: Sendable {
 
     /// Adds the quicklink, or replaces the one with the same ID.
     public func saveQuicklink(_ quicklink: Quicklink) async throws {
-        try await database.writer.write { db in
+        try await database.write("commands.saveQuicklink") { db in
             try db.execute(
                 sql: """
                     INSERT OR REPLACE INTO quicklink (id, name, template, open_with, icon, created_at)
@@ -123,7 +123,7 @@ public struct CommandStore: Sendable {
     /// fallback row is left pointing at nothing.
     public func deleteQuicklink(_ id: UUID) async throws {
         let itemID = ItemID.quicklink(id).rawValue
-        try await database.writer.write { db in
+        try await database.write("commands.deleteQuicklink") { db in
             try db.execute(sql: "DELETE FROM quicklink WHERE id = ?", arguments: [id.uuidString])
             try db.execute(sql: "DELETE FROM alias WHERE item_id = ?", arguments: [itemID])
             try db.execute(sql: "DELETE FROM item_override WHERE item_id = ?", arguments: [itemID])
@@ -138,7 +138,7 @@ public struct CommandStore: Sendable {
     public func updateFallbackOrder(
         _ change: @escaping @Sendable (inout [ItemID]) -> Void
     ) async throws {
-        try await database.writer.write { db in
+        try await database.write("commands.updateFallbackOrder") { db in
             var order = try Self.fetchFallbackOrder(db)
             change(&order)
 

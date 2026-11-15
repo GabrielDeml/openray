@@ -28,14 +28,35 @@
     "Automation: %@" : {
       "comment" : "The permission to send commands to another app, which is named."
     },
+    "Calculator" : {
+      "comment" : "The kind of a search result that is the calculator's answer, shown at the end of its row."
+    },
     "Changes that were not saved are lost." : {
       "comment" : "The message of the confirmation before force quitting an app."
     },
+    "Copied to Clipboard" : {
+      "comment" : "HUD message after an action copied something."
+    },
+    "Copied — press ⌘V" : {
+      "comment" : "HUD message when content was copied but could not be pasted into the previous app."
+    },
+    "Copied — press ⌘V. Grant Accessibility in Settings to paste directly." : {
+      "comment" : "HUD message the first time a paste could only copy because OpenRay lacks the Accessibility permission."
+    },
+    "Copy Answer" : {
+      "comment" : "The action that copies the calculator's answer to the clipboard."
+    },
+    "Copy Bundle Identifier" : {
+      "comment" : "The action that copies the selected app's bundle identifier."
+    },
+    "Copy Expression" : {
+      "comment" : "The action that copies the calculation as the user typed it to the clipboard."
+    },
+    "Copy Path" : {
+      "comment" : "The action that copies the selected app's file path."
+    },
     "Dark Mode" : {
       "comment" : "Another name the Toggle Appearance command is found by."
-    },
-    "Denied" : {
-      "comment" : "The state of a permission the user has refused."
     },
     "Done" : {
       "comment" : "Leaves the permission screen once the permission is granted."
@@ -79,6 +100,9 @@
     "Log out?" : {
       "comment" : "The title of the confirmation before logging out."
     },
+    "Not allowed" : {
+      "comment" : "The state of a permission OpenRay does not have."
+    },
     "Not asked yet" : {
       "comment" : "The state of a permission macOS has not asked the user about."
     },
@@ -96,6 +120,12 @@
     },
     "OpenRay sends a command to %@ for this, and macOS asks for your permission first." : {
       "comment" : "Explains an Automation permission. The placeholder is an app's name."
+    },
+    "Paste Answer" : {
+      "comment" : "The action that pastes the calculator's answer into the app the user was in."
+    },
+    "Pasting into the app you came from" : {
+      "comment" : "What the Accessibility permission is for, in the list of permissions in Settings."
     },
     "Power Off" : {
       "comment" : "Another name the Shut Down command is found by."

@@ -146,6 +146,31 @@ public struct AppDatabase: Sendable {
 }
 
 extension AppDatabase {
+    /// Reads from the database inside a `dbQuery` signpost interval (docs/DESIGN.md §5.3). The
+    /// stores read and write through these two, so that every query shows up in Instruments
+    /// under the name its store gives it.
+    func read<T: Sendable>(
+        _ name: String, _ query: @escaping @Sendable (Database) throws -> T
+    ) async throws -> T {
+        let signposter = Signposts.signposter
+        // An ID of its own for every query, because queries overlap.
+        let interval = signposter.beginInterval(
+            Signposts.dbQuery, id: signposter.makeSignpostID(), "\(name, privacy: .public)")
+        defer { signposter.endInterval(Signposts.dbQuery, interval) }
+        return try await writer.read(query)
+    }
+
+    /// Runs the updates in one transaction, inside a `dbQuery` signpost interval.
+    func write<T: Sendable>(
+        _ name: String, _ updates: @escaping @Sendable (Database) throws -> T
+    ) async throws -> T {
+        let signposter = Signposts.signposter
+        let interval = signposter.beginInterval(
+            Signposts.dbQuery, id: signposter.makeSignpostID(), "\(name, privacy: .public)")
+        defer { signposter.endInterval(Signposts.dbQuery, interval) }
+        return try await writer.write(updates)
+    }
+
     /// Whether this SQLite finds text from the middle of a word in an FTS5 table with the
     /// trigram tokenizer, which clipboard and snippet search are designed around (§4.3.1).
     ///

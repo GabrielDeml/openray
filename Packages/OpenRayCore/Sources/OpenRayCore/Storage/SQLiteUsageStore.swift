@@ -30,7 +30,7 @@ public actor SQLiteUsageStore: UsageStore {
     public init(database: AppDatabase, now: Date = Date()) async throws {
         self.database = database
 
-        let (itemRows, queryRows) = try await database.writer.read { db in
+        let (itemRows, queryRows) = try await database.read("usage.load") { db in
             (try Self.fetchItemRows(db), try Self.fetchQueryRows(db))
         }
 
@@ -94,7 +94,7 @@ public actor SQLiteUsageStore: UsageStore {
         // A pick from the empty field has no query row.
         let queryEntry = usage.queryUsage[id]?[storedQuery]
 
-        try await database.writer.write { db in
+        try await database.write("usage.recordPick") { db in
             try db.execute(
                 sql: """
                     INSERT OR REPLACE INTO usage (item_id, score, ref_time, use_count)
@@ -121,7 +121,7 @@ public actor SQLiteUsageStore: UsageStore {
     private static func delete(
         fadedItems: [ItemID], surplusQueryRows: [QueryRow], from database: AppDatabase
     ) async throws {
-        try await database.writer.write { db in
+        try await database.write("usage.deleteFaded") { db in
             for id in fadedItems {
                 try db.execute(
                     sql: "DELETE FROM usage WHERE item_id = ?", arguments: [id.rawValue])

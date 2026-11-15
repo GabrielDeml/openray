@@ -2,8 +2,9 @@ import AppKit
 import OpenRayCore
 import SwiftUI
 
-/// The window a new user sees first: what OpenRay is, its hotkey, and whether it opens at login
-/// (docs/DESIGN.md §4.3.7). It comes to the front the way Settings does.
+/// The window a new user sees first: what OpenRay is, its hotkey, whether it opens at login,
+/// and how it deals with permissions (docs/DESIGN.md §4.3.7). It comes to the front the way
+/// Settings does.
 final class OnboardingWindowController: ActivatingWindowController {
     private let model: OnboardingModel
 
@@ -46,6 +47,7 @@ struct OnboardingView: View {
                 case .welcome: welcomeStep
                 case .hotKey: hotKeyStep
                 case .launchAtLogin: launchAtLoginStep
+                case .permissions: permissionsStep
                 case nil: EmptyView()
                 }
             }
@@ -150,6 +152,27 @@ struct OnboardingView: View {
             Text("You can change this at any time in Settings › General.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
+        }
+    }
+
+    private var permissionsStep: some View {
+        VStack(spacing: 14) {
+            Image(systemName: "lock.shield")
+                .font(.system(size: 44, weight: .light))
+                .foregroundStyle(.tint)
+                .accessibilityHidden(true)
+            Text("Permissions, when they are needed")
+                .font(.title2.weight(.semibold))
+            Text(
+                "OpenRay works without any permission. It asks for one the first time you use a command that needs it, and never before."
+            )
+            .multilineTextAlignment(.center)
+            Text(
+                "To paste straight into the app you came from, OpenRay needs the Accessibility permission. Without it, it copies and you press ⌘V. You can grant it at any time in Settings › General."
+            )
+            .font(.callout)
+            .foregroundStyle(.secondary)
+            .multilineTextAlignment(.center)
         }
     }
 
