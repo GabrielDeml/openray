@@ -52,6 +52,15 @@ public struct KeyRouter: Sendable {
         return itemShortcutIntent(for: chord, in: context)
     }
 
+    /// Whether the launcher keeps `chord` from AppKit although it does nothing with it.
+    ///
+    /// ⌘Q is the one such chord. Let through, it would reach Quit in the main menu and end
+    /// OpenRay, while the menu bar still shows the app behind the panel. Whoever presses ⌘Q
+    /// there does not expect the launcher and its hotkey to be gone.
+    public func swallows(_ chord: KeyChord) -> Bool {
+        chord.modifiers == [.command] && chord.types("q", ansiKeyCode: VirtualKey.ansiQ)
+    }
+
     private func launcherKeyIntent(for chord: KeyChord, in context: Context) -> LauncherIntent? {
         switch chord.modifiers {
         case []:

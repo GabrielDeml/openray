@@ -28,6 +28,13 @@ import OpenRayCore
         return router.intent(for: chord, in: context ?? atRoot)
     }
 
+    /// Whether the router keeps one key press from AppKit although it has no intent for it.
+    private func swallows(
+        _ keyCode: UInt16, _ modifiers: HotKey.Modifiers, _ characters: String?
+    ) -> Bool {
+        router.swallows(KeyChord(keyCode: keyCode, modifiers: modifiers, characters: characters))
+    }
+
     // MARK: The routing table, row by row
 
     @Test func escapeKeySendsEscape() {
@@ -218,6 +225,33 @@ import OpenRayCore
         #expect(intent(VirtualKey.tab, in: composing) == nil)
         #expect(intent(VirtualKey.ansiK, [.command], "k", in: composing) == nil)
         #expect(intent(VirtualKey.returnKey, [.command], "\r", in: composing) == nil)
+    }
+
+    // MARK: Swallowed
+
+    @Test func commandQHasNoIntentButIsKeptFromAppKit() {
+        #expect(intent(VirtualKey.ansiQ, [.command], "q") == nil)
+        #expect(swallows(VirtualKey.ansiQ, [.command], "q"))
+    }
+
+    @Test func commandQIsToldByWhatTheKeyTypes() {
+        // On Dvorak the ANSI "X" key types "q", and the ANSI "Q" key types an apostrophe.
+        #expect(swallows(ansiX, [.command], "q"))
+        #expect(!swallows(VirtualKey.ansiQ, [.command], "'"))
+        // A Russian layout types "й" on the ANSI "Q" key.
+        #expect(swallows(VirtualKey.ansiQ, [.command], "\u{0439}"))
+    }
+
+    @Test func otherChordsAreNotSwallowed() {
+        // The Q key with other modifiers, and typed on its own.
+        #expect(!swallows(VirtualKey.ansiQ, [], "q"))
+        #expect(!swallows(VirtualKey.ansiQ, [.shift], "Q"))
+        #expect(!swallows(VirtualKey.ansiQ, [.command, .shift], "Q"))
+        #expect(!swallows(VirtualKey.ansiQ, [.control, .command], "q"))
+        // The editing chords have to reach the Edit menu.
+        #expect(!swallows(ansiC, [.command], "c"))
+        #expect(!swallows(ansiV, [.command], "v"))
+        #expect(!swallows(ansiX, [.command], "x"))
     }
 
     // MARK: Context from state

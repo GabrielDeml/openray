@@ -12,6 +12,12 @@ struct MenuBarMenu: View {
                 openSettings(SettingsPane.generalID)
             }
             Divider()
+        } else if hotKey.usesFallback {
+            let chord = HotKeyFormatter.string(for: hotKey.hotKey)
+            Button("Hotkey is \(chord) for now — open Settings") {
+                openSettings(SettingsPane.generalID)
+            }
+            Divider()
         }
         Button("Settings…") {
             openSettings(nil)

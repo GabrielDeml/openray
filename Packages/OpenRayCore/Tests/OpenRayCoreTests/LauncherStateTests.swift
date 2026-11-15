@@ -715,6 +715,7 @@ extension LauncherState {
         #expect(state.apply(.performAction(reveal)) == [])
         #expect(state.apply(.activateIndex(2)) == [])
         #expect(state.apply(.tabComplete) == [])
+        #expect(state.apply(.push(clipboard)) == [])
         #expect(state.apply(.toggleActionPanel) == [])
         #expect(state.actionPanel == nil)
         #expect(state.depth == 0)
@@ -859,6 +860,458 @@ extension LauncherState {
 
         #expect(state.apply(.actionFinished(.push(openWith), serial: abandoned)) == [])
         #expect(state.depth == 0)
+    }
+
+    @Test func screenIsNotPushedOverARunningActionSoItsOutcomeStillApplies() {
+        var state = LauncherState()
+        state.search("2+2", finds: rows("answer"))
+        _ = state.apply(.actionStarted)
+        let running = state.actionSerial
+
+        // A screen pushed now would be on top when the outcome arrives, and take it.
+        let pushed = state.apply(.push(clipboard))
+
+        #expect(pushed == [])
+        #expect(state.depth == 0)
+        #expect(state.top.actionInFlight)
+
+        let finished = state.apply(.actionFinished(.replaceQuery("4"), serial: running))
+
+        #expect(finished == [.search(query: "4", generation: state.generation)])
+        #expect(state.depth == 0)
+        #expect(state.top.query == "4")
+    }
+
+    @Test func screenPushedAfterAnActionWasCancelledNeverGetsItsOutcome() {
+        var state = LauncherState()
+        state.search("clip", finds: rows("history"))
+        _ = state.apply(.actionStarted)
+        let cancelled = state.actionSerial
+        _ = state.apply(.escape)
+
+        // The frame no longer waits, so a screen can go over it.
+        #expect(state.apply(.push(clipboard)) == [.showScreen(clipboard)])
+        let before = state
+
+        #expect(state.apply(.actionFinished(.replaceQuery("late"), serial: cancelled)) == [])
+        #expect(state.apply(.actionFinished(.push(openWith), serial: cancelled)) == [])
+        #expect(state == before)
+    }
+
+    @Test func screenCanBePushedOnceTheActionHasFinished() {
+        var state = LauncherState()
+        state.search("clip", finds: rows("history"))
+        _ = state.apply(.actionStarted)
+        _ = state.apply(.actionFinished(.keepOpen, serial: state.actionSerial))
+
+        #expect(state.apply(.push(clipboard)) == [.showScreen(clipboard)])
+        #expect(state.depth == 1)
+    }
+}
+
+// Results arrive at least one turn after the keystroke that asked for them. Until they do, root
+// search still holds the rows of the previous query. Return, ⌘1 to ⌘9 and Tab pressed in that gap
+// are meant for the rows on their way, so they wait for them and never act on the old ones.
+@Suite struct LauncherStatePendingActivationTests {
+    private let reveal = ActionID(rawValue: "reveal")
+
+    @Test func returnAheadOfTheResultsDoesNotActOnTheOldRows() {
+        var state = LauncherState()
+        state.search("s", finds: rows("safari", "slack"))
+        _ = state.apply(.queryChanged("sl"))
+
+        let effects = state.apply(.performPrimary)
+
+        #expect(effects == [])
+        #expect(state.top.rows == rows("safari", "slack"))
+        #expect(state.top.selection == .system("safari"))
+    }
+
+    @Test func returnAheadOfTheResultsIsPerformedOnThemWhenTheyArrive() {
+        var state = LauncherState()
+        state.search("s", finds: rows("safari", "slack"))
+        _ = state.apply(.queryChanged("sl"))
+        _ = state.apply(.performPrimary)
+
+        let effects = state.apply(
+            .resultsArrived(rows: rows("slack", "sleep"), generation: state.generation))
+
+        #expect(
+            effects == [
+                .scrollTo(.system("slack")),
+                .perform(ActionID(rawValue: "run-slack"), on: .system("slack")),
+            ])
+    }
+
+    @Test func returnIsPerformedOnlyOnce() {
+        var state = LauncherState()
+        state.search("s", finds: rows("safari", "slack"))
+        _ = state.apply(.queryChanged("sl"))
+        _ = state.apply(.performPrimary)
+        _ = state.apply(.resultsArrived(rows: rows("slack"), generation: state.generation))
+
+        // A slow section arrives for the same query.
+        let effects = state.apply(
+            .resultsArrived(rows: rows("slack", "sleep"), generation: state.generation))
+
+        #expect(effects == [])
+    }
+
+    @Test func resultsOfAnOlderQueryDoNotAnswerAWaitingReturn() {
+        var state = LauncherState()
+        _ = state.apply(.queryChanged("s"))
+        let olderGeneration = state.generation
+        _ = state.apply(.queryChanged("sl"))
+        _ = state.apply(.performPrimary)
+
+        let stale = state.apply(
+            .resultsArrived(rows: rows("safari", "slack"), generation: olderGeneration))
+
+        #expect(stale == [])
+        #expect(state.top.rows.isEmpty)
+
+        // Return is still waiting, for the results of "sl".
+        let current = state.apply(
+            .resultsArrived(rows: rows("slack"), generation: state.generation))
+
+        #expect(
+            current == [
+                .scrollTo(.system("slack")),
+                .perform(ActionID(rawValue: "run-slack"), on: .system("slack")),
+            ])
+    }
+
+    @Test func rowShortcutAheadOfTheResultsActsOnTheNewRowAtThatPosition() {
+        var state = LauncherState()
+        state.search("s", finds: rows("safari", "slack", "sleep"))
+        _ = state.apply(.queryChanged("sl"))
+
+        let pressed = state.apply(.activateIndex(2))
+
+        #expect(pressed == [])
+        #expect(state.top.selection == .system("safari"))
+
+        let arrived = state.apply(
+            .resultsArrived(rows: rows("slack", "sleep"), generation: state.generation))
+
+        #expect(state.top.selection == .system("sleep"))
+        // The new rows select their first row, then the shortcut moves on to its own.
+        #expect(
+            arrived == [
+                .scrollTo(.system("slack")),
+                .scrollTo(.system("sleep")),
+                .perform(ActionID(rawValue: "run-sleep"), on: .system("sleep")),
+            ])
+    }
+
+    @Test func rowShortcutForAPositionTheNewRowsDoNotHaveDoesNothing() {
+        var state = LauncherState()
+        state.search("s", finds: rows("safari", "slack", "sleep"))
+        _ = state.apply(.queryChanged("sl"))
+        _ = state.apply(.activateIndex(3))
+
+        let effects = state.apply(
+            .resultsArrived(rows: rows("slack", "sleep"), generation: state.generation))
+
+        #expect(effects == [.scrollTo(.system("slack"))])
+        #expect(state.top.selection == .system("slack"))
+    }
+
+    @Test func emptyResultsLeaveAWaitingReturnWithNothingToDo() {
+        var state = LauncherState()
+        state.search("s", finds: rows("safari", "slack"))
+        _ = state.apply(.queryChanged("zzz"))
+        _ = state.apply(.performPrimary)
+
+        let effects = state.apply(.resultsArrived(rows: [], generation: state.generation))
+
+        #expect(effects == [])
+        #expect(state.top.rows.isEmpty)
+
+        // The empty answer used Return up: rows that turn up later are not acted on.
+        let later = state.apply(
+            .resultsArrived(rows: rows("file"), generation: state.generation))
+
+        #expect(later == [.scrollTo(.system("file"))])
+    }
+
+    @Test func theLastOfTwoActivationsIsTheOnePerformed() {
+        var state = LauncherState()
+        state.search("s", finds: rows("safari", "slack"))
+        _ = state.apply(.queryChanged("sl"))
+        _ = state.apply(.performPrimary)
+        _ = state.apply(.activateIndex(2))
+
+        let effects = state.apply(
+            .resultsArrived(rows: rows("slack", "sleep"), generation: state.generation))
+
+        #expect(
+            effects == [
+                .scrollTo(.system("slack")),
+                .scrollTo(.system("sleep")),
+                .perform(ActionID(rawValue: "run-sleep"), on: .system("sleep")),
+            ])
+    }
+
+    @Test func typingMoreDropsAWaitingReturn() {
+        var state = LauncherState()
+        state.search("s", finds: rows("safari", "slack"))
+        _ = state.apply(.queryChanged("sl"))
+        _ = state.apply(.performPrimary)
+
+        _ = state.apply(.queryChanged("sla"))
+        let effects = state.apply(
+            .resultsArrived(rows: rows("slack"), generation: state.generation))
+
+        #expect(effects == [.scrollTo(.system("slack"))])
+    }
+
+    @Test func movingTheSelectionDropsAWaitingReturn() {
+        var state = LauncherState()
+        state.search("s", finds: rows("safari", "slack"))
+        _ = state.apply(.queryChanged("sl"))
+        _ = state.apply(.performPrimary)
+
+        _ = state.apply(.moveSelection(1))
+        let effects = state.apply(
+            .resultsArrived(rows: rows("sleep", "slack"), generation: state.generation))
+
+        #expect(effects == [.scrollTo(.system("sleep"))])
+    }
+
+    @Test func escapeDropsAWaitingReturn() {
+        var state = LauncherState()
+        state.search("s", finds: rows("safari", "slack"))
+        _ = state.apply(.queryChanged("sl"))
+        _ = state.apply(.performPrimary)
+
+        // Esc clears the query, which searches again.
+        _ = state.apply(.escape)
+        let effects = state.apply(
+            .resultsArrived(rows: rows("recent"), generation: state.generation))
+
+        #expect(effects == [.scrollTo(.system("recent"))])
+    }
+
+    @Test func pushingAScreenDropsAWaitingReturn() {
+        var state = LauncherState()
+        state.search("s", finds: rows("safari", "slack"))
+        _ = state.apply(.queryChanged("sl"))
+        _ = state.apply(.performPrimary)
+
+        _ = state.apply(.push(clipboard))
+        let rootResults = state.apply(
+            .resultsArrived(rows: rows("slack"), generation: state.generation))
+        let screenRows = state.apply(.screenRowsChanged(rows("invoice")))
+
+        #expect(rootResults == [])
+        #expect(screenRows == [.scrollTo(.system("invoice"))])
+    }
+
+    @Test func showingAgainDropsAWaitingReturn() {
+        var state = LauncherState()
+        state.search("s", finds: rows("safari", "slack"))
+        _ = state.apply(.queryChanged("sl"))
+        _ = state.apply(.performPrimary)
+
+        _ = state.apply(.willShow)
+        let effects = state.apply(
+            .resultsArrived(rows: rows("slack"), generation: state.generation))
+
+        #expect(effects == [.scrollTo(.system("slack"))])
+    }
+
+    @Test func returnRightAfterShowingWaitsForTheFreshResults() {
+        var state = LauncherState()
+        state.search("s", finds: rows("safari", "slack"))
+        _ = state.apply(.willShow)
+
+        // The rows are from before the launcher was hidden.
+        #expect(state.apply(.performPrimary) == [])
+
+        let effects = state.apply(
+            .resultsArrived(rows: rows("slack", "safari"), generation: state.generation))
+
+        #expect(
+            effects == [
+                .scrollTo(.system("slack")),
+                .perform(ActionID(rawValue: "run-slack"), on: .system("slack")),
+            ])
+    }
+
+    @Test func returnWhileAnActionRunsIsNotKeptForLater() {
+        var state = LauncherState()
+        state.search("s", finds: rows("safari", "slack"))
+        _ = state.apply(.actionStarted)
+        _ = state.apply(.queryChanged("sl"))
+
+        #expect(state.apply(.performPrimary) == [])
+        _ = state.apply(.actionFinished(.keepOpen, serial: state.actionSerial))
+        let effects = state.apply(
+            .resultsArrived(rows: rows("slack"), generation: state.generation))
+
+        #expect(effects == [.scrollTo(.system("slack"))])
+    }
+
+    @Test func actionThatStartsMeanwhileDropsAWaitingReturn() {
+        var state = LauncherState()
+        state.search("s", finds: rows("safari", "slack"))
+        _ = state.apply(.queryChanged("sl"))
+        _ = state.apply(.performPrimary)
+
+        _ = state.apply(.actionStarted)
+        _ = state.apply(.actionFinished(.keepOpen, serial: state.actionSerial))
+        let effects = state.apply(
+            .resultsArrived(rows: rows("slack"), generation: state.generation))
+
+        #expect(effects == [.scrollTo(.system("slack"))])
+    }
+
+    @Test func lateOutcomeOfACancelledActionLeavesAWaitingReturnInPlace() {
+        var state = LauncherState()
+        state.search("s", finds: rows("safari", "slack"))
+        _ = state.apply(.actionStarted)
+        let cancelled = state.actionSerial
+        _ = state.apply(.escape)
+        _ = state.apply(.queryChanged("sl"))
+        _ = state.apply(.performPrimary)
+
+        // The cancelled action returns only now. That is not the user changing their mind.
+        #expect(state.apply(.actionFinished(.keepOpen, serial: cancelled)) == [])
+        let effects = state.apply(
+            .resultsArrived(rows: rows("slack"), generation: state.generation))
+
+        #expect(
+            effects == [
+                .scrollTo(.system("slack")),
+                .perform(ActionID(rawValue: "run-slack"), on: .system("slack")),
+            ])
+    }
+
+    @Test func hidingDropsAWaitingReturn() {
+        var state = LauncherState()
+        state.search("s", finds: rows("safari", "slack"))
+        _ = state.apply(.queryChanged("sl"))
+        _ = state.apply(.performPrimary)
+
+        // The panel loses key, or the hotkey hides it, before the results are in.
+        #expect(state.apply(.didHide) == [])
+        let effects = state.apply(
+            .resultsArrived(rows: rows("slack"), generation: state.generation))
+
+        #expect(effects == [.scrollTo(.system("slack"))])
+    }
+
+    @Test func hidingChangesNothingElse() {
+        var state = LauncherState()
+        state.search("clip", finds: rows("history"))
+        _ = state.apply(.push(clipboard))
+        _ = state.apply(.screenRowsChanged(rows("invoice", "receipt")))
+        _ = state.apply(.actionStarted)
+        let before = state
+
+        #expect(state.apply(.didHide) == [])
+        #expect(state == before)
+    }
+
+    @Test func tabAheadOfTheResultsOpensTheTabTargetOfTheNewFirstRow() {
+        var state = LauncherState()
+        state.tabFallback = chat
+        let safari = LauncherState.Row(id: .system("safari"), tabTarget: clipboard)
+        let slack = LauncherState.Row(id: .system("slack"), tabTarget: openWith)
+        state.search("s", finds: [safari, slack])
+        _ = state.apply(.queryChanged("sl"))
+
+        // Safari is still selected, and Tab must not open its target.
+        #expect(state.apply(.tabComplete) == [])
+        #expect(state.depth == 0)
+
+        let effects = state.apply(.resultsArrived(rows: [slack], generation: state.generation))
+
+        #expect(effects == [.scrollTo(.system("slack")), .showScreen(openWith)])
+        #expect(state.top.screen == openWith)
+    }
+
+    @Test func tabAheadOfTheResultsFallsBackWhenTheNewFirstRowHasNoTabTarget() {
+        var state = LauncherState()
+        state.tabFallback = chat
+        let safari = LauncherState.Row(id: .system("safari"), tabTarget: openWith)
+        state.search("s", finds: [safari])
+        _ = state.apply(.queryChanged("sky"))
+        _ = state.apply(.tabComplete)
+        let chatWithQuery = ScreenRequest(
+            feature: chat.feature, screen: chat.screen, argument: "sky")
+
+        let effects = state.apply(
+            .resultsArrived(rows: rows("skype"), generation: state.generation))
+
+        #expect(effects == [.scrollTo(.system("skype")), .showScreen(chatWithQuery)])
+    }
+
+    @Test func itemShortcutAheadOfTheResultsIsIgnored() {
+        var state = LauncherState()
+        state.search("s", finds: rows("safari", "slack"))
+        _ = state.apply(.queryChanged("sl"))
+
+        // `reveal` was looked up among the actions of Safari, the row still selected.
+        let pressed = state.apply(.performAction(reveal))
+        let arrived = state.apply(
+            .resultsArrived(rows: rows("slack"), generation: state.generation))
+
+        #expect(pressed == [])
+        // It does not wait either: the new row has actions of its own.
+        #expect(arrived == [.scrollTo(.system("slack"))])
+    }
+
+    @Test func actionPanelDoesNotOpenAheadOfTheResults() {
+        var state = LauncherState()
+        state.search("s", finds: rows("safari", "slack"))
+        _ = state.apply(.queryChanged("sl"))
+
+        _ = state.apply(.toggleActionPanel)
+
+        #expect(state.actionPanel == nil)
+
+        // With the results in, it opens on the row they select.
+        _ = state.apply(.resultsArrived(rows: rows("slack"), generation: state.generation))
+        _ = state.apply(.toggleActionPanel)
+
+        #expect(state.actionPanel != nil)
+        #expect(state.top.selection == .system("slack"))
+    }
+
+    // A screen's rows do not say which query they answer, so the reducer cannot tell the rows it
+    // would be waiting for from a late answer to an earlier query, or from a row that was added
+    // meanwhile. On a screen nothing waits.
+    @Test func onAScreenReturnActsOnTheRowsShownAndNothingIsKeptForLater() {
+        var state = LauncherState()
+        _ = state.apply(.push(clipboard))
+        _ = state.apply(.screenRowsChanged(rows("invoice", "invite", "receipt", "recipe")))
+        _ = state.apply(.queryChanged("re"))
+        _ = state.apply(.queryChanged("rec"))
+
+        let pressed = state.apply(.performPrimary)
+
+        #expect(pressed == [.perform(ActionID(rawValue: "run-invoice"), on: .system("invoice"))])
+
+        // The answer to "re" arrives late, while the screen is still searching for "rec".
+        let lateAnswer = state.apply(.screenRowsChanged(rows("recipe", "receipt")))
+
+        #expect(lateAnswer == [.scrollTo(.system("recipe"))])
+    }
+
+    @Test func onAScreenTabAndTheActionPanelDoNotWaitEither() {
+        var state = LauncherState()
+        let invoice = LauncherState.Row(id: .system("invoice"), tabTarget: openWith)
+        _ = state.apply(.push(clipboard))
+        _ = state.apply(.screenRowsChanged([invoice]))
+        _ = state.apply(.queryChanged("inv"))
+
+        _ = state.apply(.toggleActionPanel)
+        #expect(state.actionPanel != nil)
+        _ = state.apply(.toggleActionPanel)
+
+        #expect(state.apply(.tabComplete) == [.showScreen(openWith)])
     }
 }
 

@@ -6,6 +6,16 @@ import OpenRayCore
 @Suite struct HotKeyTests {
     private let space: UInt32 = 0x31  // kVK_Space
 
+    /// Whether the recorder would refuse one key press. `characters` is what the recorder reads
+    /// from the event: what the key types with ⌘ held if ⌘ is in the chord, and otherwise what
+    /// it types without its modifiers.
+    private func isReserved(
+        _ keyCode: UInt16, _ modifiers: HotKey.Modifiers, _ characters: String?
+    ) -> Bool {
+        let chord = KeyChord(keyCode: keyCode, modifiers: modifiers, characters: characters)
+        return HotKey.isReservedShortcut(chord)
+    }
+
     @Test func launcherDefaultIsOptionSpace() {
         #expect(HotKey.launcherDefault == HotKey(keyCode: space, modifiers: [.option]))
     }
@@ -42,6 +52,68 @@ import OpenRayCore
 
         #expect(optionSpace.validate() == .optionShiftOnly)
         #expect(optionShiftSpace.validate() == .optionShiftOnly)
+    }
+
+    @Test func editingAndWindowShortcutsAreReserved() {
+        // Each character with its kVK_ANSI_* key code.
+        let keys: [(character: String, keyCode: UInt16)] = [
+            ("a", 0x00), ("c", 0x08), ("v", 0x09), ("x", 0x07), ("z", 0x06),
+            ("q", 0x0C), ("w", 0x0D), ("h", 0x04), ("m", 0x2E), (",", 0x2B),
+        ]
+        for key in keys {
+            #expect(isReserved(key.keyCode, [.command], key.character), "⌘\(key.character)")
+        }
+    }
+
+    @Test func redoIsReserved() {
+        // With Shift held the letter may arrive in upper case.
+        #expect(isReserved(VirtualKey.ansiZ, [.command, .shift], "Z"))
+        #expect(isReserved(VirtualKey.ansiZ, [.command, .shift], "z"))
+    }
+
+    @Test func appSwitcherAndForceQuitAreReserved() {
+        #expect(isReserved(VirtualKey.tab, [.command], "\t"))
+        // Shift-Tab arrives as the back-tab character, U+0019 (NSBackTabCharacter).
+        #expect(isReserved(VirtualKey.tab, [.command, .shift], "\u{19}"))
+        #expect(isReserved(VirtualKey.escape, [.command, .option], "\u{1B}"))
+    }
+
+    @Test func reservedShortcutsFollowTheKeyboardLayout() {
+        // On Dvorak the key at the ANSI "I" position types "c", and the ANSI "C" key types "j".
+        let ansiI: UInt16 = 0x22
+        #expect(isReserved(ansiI, [.command], "c"))
+        #expect(!isReserved(VirtualKey.ansiC, [.command], "j"))
+    }
+
+    @Test func reservedShortcutsGoByWhatTheKeyTypesWithCommandHeld() {
+        // "Dvorak – QWERTY ⌘" is Dvorak until ⌘ is held and QWERTY while it is. The ANSI "C" key
+        // types "j" on its own and is ⌘C; the ANSI "I" key types "c" on its own and is ⌘I. The
+        // recorder passes the character typed with ⌘ held.
+        let ansiI: UInt16 = 0x22
+        #expect(isReserved(VirtualKey.ansiC, [.command], "c"))
+        #expect(!isReserved(ansiI, [.command], "i"))
+    }
+
+    @Test func reservedShortcutsGoByKeyPositionWhenTheLayoutIsNotASCII() {
+        // A Russian layout types the Cyrillic "с" on the ANSI "C" key, and ⌘ with it still copies.
+        #expect(isReserved(VirtualKey.ansiC, [.command], "с"))
+        #expect(isReserved(VirtualKey.ansiC, [.command], nil))
+    }
+
+    @Test func otherChordsAreNotReserved() {
+        #expect(!isReserved(VirtualKey.space, [.option], " "))
+        #expect(!isReserved(VirtualKey.space, [.command], " "))
+        #expect(!isReserved(VirtualKey.space, [.control, .option], " "))
+
+        // The reserved keys are free with other modifiers.
+        #expect(!isReserved(VirtualKey.ansiC, [.control], "c"))
+        #expect(!isReserved(VirtualKey.ansiC, [.command, .option], "c"))
+        #expect(!isReserved(VirtualKey.ansiC, [.command, .shift], "C"))
+        #expect(!isReserved(VirtualKey.tab, [.control], "\t"))
+        #expect(!isReserved(VirtualKey.escape, [.command], "\u{1B}"))
+
+        // A Command shortcut that only some apps have.
+        #expect(!isReserved(VirtualKey.ansiK, [.command], "k"))
     }
 
     @Test func modifiersComeFromAnEventsFlags() {

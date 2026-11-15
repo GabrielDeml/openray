@@ -17,10 +17,13 @@ final class LauncherHotKey {
 
     /// Whether a hotkey is registered. While it is not, only the menu-bar item reaches OpenRay.
     private(set) var isActive = false
-    /// The last registration that failed; cleared by the next one that succeeds.
+    /// The last registration that failed; cleared by the next one that succeeds. The exception
+    /// is the fallback: registering it leaves the refusal of the default here, because the user
+    /// still has to be told why the launcher is on another chord.
     private(set) var failure: Failure?
     /// Whether the default could not be registered at launch and `fallback` stands in for it
     /// until OpenRay quits. The preference keeps the default, so every launch tries it again.
+    /// Only true while `isActive` is.
     private(set) var usesFallback = false
 
     @ObservationIgnored private let registrar: any HotKeyRegistering
@@ -36,7 +39,7 @@ final class LauncherHotKey {
     var hotKey: HotKey { usesFallback ? Self.fallback : preferences.launcherHotKey }
 
     /// Registers the stored hotkey. If that is the default and macOS refuses it, the fallback is
-    /// registered in its place, without being stored.
+    /// registered in its place, without being stored, and `failure` keeps saying why.
     func registerAtLaunch() {
         let stored = preferences.launcherHotKey
         if tryToRegister(stored) { return }
@@ -47,10 +50,10 @@ final class LauncherHotKey {
         let refusalOfDefault = failure
         if tryToRegister(Self.fallback) {
             usesFallback = true
-        } else {
-            // The recorder still shows the default, so that is the failure to explain.
-            failure = refusalOfDefault
         }
+        // Whether or not the fallback was registered, the failure to explain is the default's:
+        // that is the chord the user expects to work.
+        failure = refusalOfDefault
     }
 
     /// Makes `key` the launcher hotkey. If it cannot be registered, the previous hotkey stays.
@@ -81,6 +84,16 @@ final class LauncherHotKey {
     }
 
     func endRecording() {
-        registrar.resumeAll()
+        let notRestored = registrar.resumeAll()
+        guard let error = notRestored[.launcher] else { return }
+        // The chord was released for the recorder and could not be taken back, most likely
+        // because another app registered it in the meantime. No hotkey is registered now, not
+        // even the fallback.
+        //
+        // Read before `usesFallback` changes, which decides what `hotKey` is.
+        let lostHotKey = hotKey
+        isActive = false
+        usesFallback = false
+        failure = Failure(hotKey: lostHotKey, error: error)
     }
 }

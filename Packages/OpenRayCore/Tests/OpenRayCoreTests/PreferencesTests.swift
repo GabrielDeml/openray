@@ -109,6 +109,150 @@ private let commandShiftK = HotKey(keyCode: 0x28, modifiers: [.command, .shift])
     }
 }
 
+/// A value with other values inside it, some of them optional.
+private struct EditorChoice: Codable, Equatable, Sendable {
+    var name: String
+    var bundleID: String?
+    var arguments: [String?]
+    var hotKeys: [String: HotKey]
+    var lastUsed: Date
+}
+
+/// What a value is after it was stored and read again, in each of the two stores. They share
+/// their coding, but only the real one hands the coded value to `UserDefaults`.
+///
+/// Serialized because the tests share one `UserDefaults` suite. A suite of its own for every
+/// test would leave as many files behind: removing a domain empties its file in
+/// ~/Library/Preferences and does not delete it.
+@Suite(.serialized) struct PreferenceRoundTripTests {
+    private let suiteName = "OpenRayCoreTests.PreferenceRoundTripTests"
+
+    /// Stores `value` and reads it back, first in the in-memory store and then in the
+    /// `UserDefaults` one.
+    ///
+    /// - Parameter defaultValue: The key's default, which is what comes back if the stored value
+    ///   cannot be read. It has to differ from `value` for the test to notice.
+    private func readBack<V: Codable & Sendable>(
+        _ value: V, ifUnreadable defaultValue: V
+    ) throws -> (inMemory: V, userDefaults: V) {
+        let key = PreferenceKey(name: "test.roundTrip", defaultValue: defaultValue)
+
+        let memoryStore = InMemoryPreferencesStore()
+        memoryStore.set(value, for: key)
+
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let realStore = UserDefaultsPreferencesStore(defaults: defaults)
+        realStore.set(value, for: key)
+
+        return (inMemory: memoryStore.value(for: key), userDefaults: realStore.value(for: key))
+    }
+
+    /// Expects `value` to come back unchanged from both stores. A failure is reported at the
+    /// line that called this, and says which store it was.
+    private func expectRoundTrip<V: Codable & Sendable & Equatable>(
+        _ value: V, ifUnreadable defaultValue: V,
+        sourceLocation: SourceLocation = #_sourceLocation
+    ) throws {
+        let stored = try readBack(value, ifUnreadable: defaultValue)
+        #expect(stored.inMemory == value, "in-memory store", sourceLocation: sourceLocation)
+        #expect(stored.userDefaults == value, "UserDefaults store", sourceLocation: sourceLocation)
+    }
+
+    // "$null" is what `PropertyListEncoder` writes for nil, and what its decoder refuses to
+    // read as a string.
+    @Test func stringThatLooksLikeANilMarkerRoundTrips() throws {
+        try expectRoundTrip("$null", ifUnreadable: "")
+        try expectRoundTrip(["$null", "null"], ifUnreadable: [])
+
+        let optional: String? = "$null"
+        try expectRoundTrip(optional, ifUnreadable: "")
+        let noString: String? = nil
+        try expectRoundTrip(noString, ifUnreadable: "")
+    }
+
+    @Test func stringsThatLookLikeJSONRoundTrip() throws {
+        let strings = [
+            "", "null", "true", "7", "{}", "\"quoted\"", "back\\slash", "two\nlines", "naïve 🙂",
+        ]
+
+        for string in strings {
+            try expectRoundTrip(string, ifUnreadable: "unreadable")
+        }
+    }
+
+    @Test func doublesRoundTripExactly() throws {
+        let doubles = [
+            0.1 + 0.2, 1.0 / 3.0, -0.0, 1e-7, 1e21,
+            Double.greatestFiniteMagnitude, Double.leastNonzeroMagnitude,
+            Double.infinity, -Double.infinity,
+        ]
+
+        for double in doubles {
+            let stored = try readBack(double, ifUnreadable: 42)
+            // By bit pattern, because -0.0 == 0.0.
+            #expect(stored.inMemory.bitPattern == double.bitPattern, "in-memory store")
+            #expect(stored.userDefaults.bitPattern == double.bitPattern, "UserDefaults store")
+        }
+
+        // NaN is equal to nothing, itself included.
+        let storedNaN = try readBack(Double.nan, ifUnreadable: 42)
+        #expect(storedNaN.inMemory.isNaN)
+        #expect(storedNaN.userDefaults.isNaN)
+    }
+
+    @Test func integersAtTheirLimitsRoundTrip() throws {
+        try expectRoundTrip(Int64.min, ifUnreadable: 0)
+        try expectRoundTrip(UInt64.max, ifUnreadable: 0)
+    }
+
+    @Test func dataRoundTrips() throws {
+        let bytes = Data([0x00, 0xFF, 0x0A, 0x22, 0x5C])
+        try expectRoundTrip(bytes, ifUnreadable: Data([1]))
+        try expectRoundTrip(Data(), ifUnreadable: Data([1]))
+    }
+
+    @Test func datesRoundTripToTheLastFraction() throws {
+        let dates = [
+            Date(timeIntervalSince1970: 1_700_000_000.123_456_7),
+            Date(timeIntervalSinceReferenceDate: -0.000_001),
+            Date.distantPast,
+            Date.distantFuture,
+        ]
+
+        let epoch = Date(timeIntervalSince1970: 0)
+        for date in dates {
+            try expectRoundTrip(date, ifUnreadable: epoch)
+        }
+    }
+
+    @Test func nestedValuesRoundTrip() throws {
+        let choice = EditorChoice(
+            name: "$null",
+            bundleID: nil,
+            arguments: ["--wait", nil, "$null"],
+            hotKeys: ["open": commandShiftK, "$null": .launcherDefault],
+            lastUsed: Date(timeIntervalSince1970: 1_700_000_000.5))
+        let nothing = EditorChoice(
+            name: "", bundleID: "", arguments: [], hotKeys: [:],
+            lastUsed: Date(timeIntervalSince1970: 0))
+
+        try expectRoundTrip(choice, ifUnreadable: nothing)
+        try expectRoundTrip([[choice], []], ifUnreadable: [])
+    }
+
+    // What an earlier build stored: the value as a property list, here a dictionary.
+    @Test func valueStoredAsAPropertyListReadsAsTheDefault() throws {
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let realStore = UserDefaultsPreferencesStore(defaults: defaults)
+
+        defaults.set(["keyCode": 40, "modifiers": 9], forKey: "launcher.hotKey")
+
+        #expect(realStore.value(for: .launcherHotKey) == .launcherDefault)
+    }
+}
+
 @MainActor @Suite struct PreferencesTests {
     private let store = InMemoryPreferencesStore()
 

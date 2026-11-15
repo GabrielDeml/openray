@@ -77,6 +77,51 @@ import OpenRayCore
         #expect(frame.midX == 1020)
     }
 
+    @Test func shortDisplayRaisesThePanelUntilItFits() {
+        // 22 % down from the top at y = 575 leaves 402 points above the Dock, and the panel
+        // is 480 high.
+        let short = DisplayGeometry(
+            id: 6,
+            frame: CGRect(x: 0, y: 0, width: 1280, height: 600),
+            visibleFrame: CGRect(x: 0, y: 60, width: 1280, height: 515))
+
+        let frame = panelFrame([short], mouse: CGPoint(x: 10, y: 10))
+
+        #expect(frame.size == size)
+        #expect(frame.minY == 60)
+        #expect(frame.midX == 640)
+        #expect(short.visibleFrame.contains(frame))
+    }
+
+    @Test func narrowDisplayKeepsTheLeftEdgeOnScreen() {
+        // 700 points wide, to the left of the primary display. The panel is 750 wide.
+        let narrow = DisplayGeometry(
+            id: 7,
+            frame: CGRect(x: -700, y: 0, width: 700, height: 1200),
+            visibleFrame: CGRect(x: -700, y: 0, width: 700, height: 1160))
+
+        let frame = panelFrame([narrow], mouse: CGPoint(x: -10, y: 10))
+
+        #expect(frame.size == size)
+        #expect(frame.minX == -700)
+        // The top edge is where it always is: 255.2 points below the top at y = 1160.
+        #expect(frame.maxY == 905)
+    }
+
+    @Test func displaySmallerThanThePanelKeepsTheTopLeftCornerOnScreen() {
+        // The Dock is on the left, so the visible frame starts at x = 50.
+        let tiny = DisplayGeometry(
+            id: 8,
+            frame: CGRect(x: 0, y: 0, width: 640, height: 480),
+            visibleFrame: CGRect(x: 50, y: 0, width: 590, height: 450))
+
+        let frame = panelFrame([tiny], mouse: CGPoint(x: 10, y: 10))
+
+        #expect(frame.size == size)
+        #expect(frame.minX == 50)
+        #expect(frame.maxY == 450)
+    }
+
     @Test func mouseOnTheSeamBelongsToTheDisplayThatStartsThere() {
         // `primary` ends at x = 1920, where `right` starts.
         let onTheSeam = CGPoint(x: 1920, y: 500)

@@ -6,7 +6,8 @@ import SwiftUI
 /// Shows the launcher hotkey and records a new one from the keyboard.
 ///
 /// A click, Space or Return starts recording. While recording, a chord with at least one of ⌘, ⌃
-/// or ⌥ becomes the hotkey, Esc cancels, and Delete restores the default.
+/// or ⌥ becomes the hotkey, unless it is a reserved shortcut such as ⌘C; Esc cancels, and Delete
+/// restores the default.
 final class HotKeyRecorderView: NSView {
     private static let cornerRadius: CGFloat = 6
 
@@ -15,6 +16,8 @@ final class HotKeyRecorderView: NSView {
     private var isRecording = false
     /// The modifiers held down while recording, shown until a key completes the chord.
     private var heldModifiers: HotKey.Modifiers = []
+    /// Why the last chord typed while recording was refused, shown until the next one is begun.
+    private var refusal: String?
 
     init(launcherHotKey: LauncherHotKey) {
         self.launcherHotKey = launcherHotKey
@@ -53,7 +56,9 @@ final class HotKeyRecorderView: NSView {
     /// Shows the current hotkey, or the recording prompt.
     @objc func refresh() {
         if isRecording {
-            if heldModifiers.isEmpty {
+            if let refusal {
+                label.stringValue = refusal
+            } else if heldModifiers.isEmpty {
                 label.stringValue = String(localized: "Type shortcut")
             } else {
                 label.stringValue = HotKeyFormatter.symbols(for: heldModifiers)
@@ -102,6 +107,7 @@ final class HotKeyRecorderView: NSView {
         // Carbon would otherwise consume the current hotkey before this view saw it.
         launcherHotKey.beginRecording()
         heldModifiers = []
+        refusal = nil
         refresh()
     }
 
@@ -111,6 +117,7 @@ final class HotKeyRecorderView: NSView {
         isRecording = false
         launcherHotKey.endRecording()
         heldModifiers = []
+        refusal = nil
         refresh()
     }
 
@@ -153,7 +160,7 @@ final class HotKeyRecorderView: NSView {
         }
     }
 
-    /// ⌘ chords arrive here first; without this a recorded ⌘W would close the window.
+    /// ⌘ chords arrive here first; without this a ⌘W typed while recording would close the window.
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         guard isRecording, event.type == .keyDown else {
             return super.performKeyEquivalent(with: event)
@@ -167,11 +174,22 @@ final class HotKeyRecorderView: NSView {
             super.flagsChanged(with: event)
             return
         }
-        heldModifiers = HotKey.Modifiers(eventModifierFlags: event.modifierFlags.rawValue)
+        let nowHeld = HotKey.Modifiers(eventModifierFlags: event.modifierFlags.rawValue)
+        // A modifier going down begins the next chord. Letting go of the modifiers of a refused
+        // chord must not clear the reason, or it would be gone before anyone could read it.
+        let modifierWentDown = !nowHeld.isSubset(of: heldModifiers)
+        if modifierWentDown {
+            refusal = nil
+        }
+        heldModifiers = nowHeld
         refresh()
     }
 
     private func keyPressedWhileRecording(_ event: NSEvent) {
+        // A held key repeats. Its first press was answered, and answering every repeat would
+        // beep for as long as a refused key is held down.
+        if event.isARepeat { return }
+
         let keyCode = Int(event.keyCode)
         let modifiers = HotKey.Modifiers(eventModifierFlags: event.modifierFlags.rawValue)
 
@@ -190,10 +208,28 @@ final class HotKeyRecorderView: NSView {
 
         let key = HotKey(keyCode: UInt32(event.keyCode), modifiers: modifiers)
         if key.validate() == .needsModifier {
-            NSSound.beep()
+            refuse(because: String(localized: "Add ⌘, ⌃ or ⌥"))
+            return
+        }
+        // A reserved shortcut is told by the letter its key types with ⌘ held. On most layouts
+        // that is the letter it types without ⌘, but not on "Dvorak – QWERTY ⌘", where the key
+        // that types "j" is ⌘C.
+        let typed =
+            modifiers.contains(.command) ? event.characters : event.charactersIgnoringModifiers
+        let pressed = KeyChord(keyCode: event.keyCode, modifiers: modifiers, characters: typed)
+        if HotKey.isReservedShortcut(pressed) {
+            let chord = HotKeyFormatter.string(for: key)
+            refuse(because: String(localized: "\(chord) is reserved"))
             return
         }
         finishRecording(with: key)
+    }
+
+    /// Keeps recording, and says in the recorder why the chord was not taken.
+    private func refuse(because reason: String) {
+        NSSound.beep()
+        refusal = reason
+        refresh()
     }
 
     // MARK: Leaving

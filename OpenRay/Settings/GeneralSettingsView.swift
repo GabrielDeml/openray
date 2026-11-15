@@ -34,9 +34,8 @@ struct GeneralSettingsView: View {
                         .foregroundStyle(.red)
                     }
                     if hotKey.usesFallback {
-                        Text(
-                            "\(HotKeyFormatter.string(for: .launcherDefault)) could not be registered, so OpenRay uses \(HotKeyFormatter.string(for: LauncherHotKey.fallback)) for now and tries again the next time it starts."
-                        )
+                        // In the primary colour: this is news, unlike the hints below it.
+                        Text(fallbackNote).foregroundStyle(.primary)
                     }
                     if hotKey.hotKey.validate() == .optionShiftOnly {
                         Text("Some macOS versions refuse shortcuts whose only modifier is Option.")
@@ -53,13 +52,20 @@ struct GeneralSettingsView: View {
         .formStyle(.grouped)
     }
 
+    private var fallbackNote: LocalizedStringResource {
+        let fallback = HotKeyFormatter.string(for: LauncherHotKey.fallback)
+        let refused = HotKeyFormatter.string(for: .launcherDefault)
+        return "Until OpenRay quits, \(fallback) opens the launcher in place of \(refused). OpenRay tries \(refused) again the next time it starts."
+    }
+
     private func message(for failure: LauncherHotKey.Failure) -> LocalizedStringResource {
         let chord = HotKeyFormatter.string(for: failure.hotKey)
         switch failure.error {
         case .inUseByAnotherApp:
             return "\(chord) is in use by another app."
         case .rejected(let status):
-            return "macOS could not register \(chord) (error \(status))."
+            // As text, because a number would be shown with a thousands separator ("-9,868").
+            return "macOS could not register \(chord) (error \(String(status)))."
         }
     }
 }

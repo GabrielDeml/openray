@@ -1,7 +1,7 @@
 import Foundation
 
-/// Preferences in `UserDefaults`, each stored as a native property-list value so that
-/// `defaults read` shows it.
+/// Preferences in `UserDefaults`, each stored as a string of JSON, which `defaults read` shows
+/// as it is.
 ///
 /// `@unchecked Sendable`: `UserDefaults` is documented as thread-safe, but the SDK marks its
 /// `Sendable` conformance unavailable.
@@ -15,8 +15,14 @@ public final class UserDefaultsPreferencesStore: PreferencesStore, @unchecked Se
 
     public func value<V>(for key: PreferenceKey<V>) -> V {
         guard let object = defaults.object(forKey: key.name) else { return key.defaultValue }
+        // Anything but a string was not written by this store.
+        guard let json = object as? String else {
+            Log.storage.error(
+                "Preference \(key.name, privacy: .public) is not stored as JSON, using its default")
+            return key.defaultValue
+        }
         do {
-            return try PreferenceCoding.value(fromPropertyListObject: object)
+            return try PreferenceCoding.value(fromJSON: json)
         } catch {
             Log.storage.error(
                 "Unreadable preference \(key.name, privacy: .public), using its default: \(error)")
@@ -26,8 +32,8 @@ public final class UserDefaultsPreferencesStore: PreferencesStore, @unchecked Se
 
     public func set<V>(_ value: V, for key: PreferenceKey<V>) {
         do {
-            let object = try PreferenceCoding.propertyListObject(from: value)
-            defaults.set(object, forKey: key.name)
+            let json = try PreferenceCoding.json(from: value)
+            defaults.set(json, forKey: key.name)
         } catch {
             Log.storage.error("Cannot store preference \(key.name, privacy: .public): \(error)")
             return

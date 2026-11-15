@@ -24,12 +24,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        NSApp.mainMenu = MainMenu.make()
+        NSApp.mainMenu = MainMenu.make(appDelegate: self)
         launcher.onOpenSettings = { [unowned self] in showSettings() }
         hotKeys.onPress = { [unowned self] _, eventTime in launcher.hotKeyPressed(at: eventTime) }
 
         launcherHotKey.registerAtLaunch()
-        if !launcherHotKey.isActive {
+        // The fallback works, but nobody would guess it: the General pane says which chord opens
+        // the launcher and why.
+        if !launcherHotKey.isActive || launcherHotKey.usesFallback {
             showSettings(pane: SettingsPane.generalID)
         }
         if ProcessInfo.processInfo.arguments.contains(Self.showPanelOnLaunchArgument) {

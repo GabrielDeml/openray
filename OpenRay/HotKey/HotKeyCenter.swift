@@ -26,7 +26,11 @@ final class HotKeyCenter: HotKeyRegistering {
         if let current = registrations[slot], current.key == key, current.ref != nil {
             return .success(())
         }
-        installHandlerIfNeeded()
+        // Without the handler, a registered hotkey would be held but never reach `onPress`.
+        let handlerStatus = installHandlerIfNeeded()
+        if handlerStatus != noErr {
+            return .failure(.rejected(handlerStatus))
+        }
 
         // The new chord is taken before the old one is released, so a failure changes nothing.
         switch carbonRegister(key, for: slot) {
@@ -55,7 +59,8 @@ final class HotKeyCenter: HotKeyRegistering {
         }
     }
 
-    func resumeAll() {
+    func resumeAll() -> [HotKeySlot: HotKeyError] {
+        var failures: [HotKeySlot: HotKeyError] = [:]
         for (slot, registration) in registrations where registration.ref == nil {
             switch carbonRegister(registration.key, for: slot) {
             case .success(let ref):
@@ -64,8 +69,13 @@ final class HotKeyCenter: HotKeyRegistering {
                 Log.launcher.error(
                     "Hotkey \(slot.rawValue, privacy: .public) was not restored: \(String(describing: error), privacy: .public)"
                 )
+                // The slot is forgotten, not left suspended: it has no hotkey until the caller
+                // registers one again.
+                registrations[slot] = nil
+                failures[slot] = error
             }
         }
+        return failures
     }
 
     private func carbonRegister(
@@ -90,8 +100,9 @@ final class HotKeyCenter: HotKeyRegistering {
         return .failure(.rejected(status))
     }
 
-    private func installHandlerIfNeeded() {
-        guard !handlerIsInstalled else { return }
+    /// - Returns: `noErr` once the handler is installed, otherwise why Carbon refused it.
+    private func installHandlerIfNeeded() -> OSStatus {
+        guard !handlerIsInstalled else { return noErr }
         var eventType = EventTypeSpec(
             eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
         // Carbon hands this pointer back to `handleHotKeyEvent` as its `userData`.
@@ -109,6 +120,7 @@ final class HotKeyCenter: HotKeyRegistering {
         } else {
             Log.launcher.error("Hotkey handler was not installed: \(status, privacy: .public)")
         }
+        return status
     }
 }
 

@@ -63,3 +63,48 @@ public struct HotKey: Codable, Hashable, Sendable {
     public static let launcherDefault = HotKey(
         keyCode: UInt32(VirtualKey.space), modifiers: [.option])
 }
+
+extension HotKey {
+    /// Whether `chord` is a shortcut that people use in every app, such as ⌘C or ⌘Tab. A global
+    /// hotkey on it would take the shortcut away from all of them, so the recorder refuses it.
+    ///
+    /// This takes the key press and not a `HotKey` because ⌘C is the key that types "c", wherever
+    /// the keyboard layout puts it.
+    public static func isReservedShortcut(_ chord: KeyChord) -> Bool {
+        switch chord.modifiers {
+        case [.command]:
+            // The app switcher.
+            if chord.keyCode == VirtualKey.tab { return true }
+            for key in reservedCommandKeys {
+                if chord.types(key.character, ansiKeyCode: key.ansiKeyCode) { return true }
+            }
+            return false
+        case [.command, .shift]:
+            // The app switcher going backwards, and Redo.
+            if chord.keyCode == VirtualKey.tab { return true }
+            return chord.types("z", ansiKeyCode: VirtualKey.ansiZ)
+        case [.command, .option]:
+            // Force Quit.
+            return chord.keyCode == VirtualKey.escape
+        default:
+            return false
+        }
+    }
+
+    /// The keys that are reserved with Command alone, each with its key code on an ANSI
+    /// keyboard. The list is short on purpose: it has the shortcuts that work nearly everywhere,
+    /// and leaves out those that only some apps have (⌘S, ⌘N, ⌘F) or that the user can reassign
+    /// in System Settings (⌘Space, ⌘`).
+    private static let reservedCommandKeys: [(character: String, ansiKeyCode: UInt16)] = [
+        ("a", VirtualKey.ansiA),  // Select All
+        ("c", VirtualKey.ansiC),  // Copy
+        ("v", VirtualKey.ansiV),  // Paste
+        ("x", VirtualKey.ansiX),  // Cut
+        ("z", VirtualKey.ansiZ),  // Undo
+        ("q", VirtualKey.ansiQ),  // Quit
+        ("w", VirtualKey.ansiW),  // Close
+        ("h", VirtualKey.ansiH),  // Hide
+        ("m", VirtualKey.ansiM),  // Minimize
+        (",", VirtualKey.ansiComma),  // Settings, in the launcher's own panel too
+    ]
+}

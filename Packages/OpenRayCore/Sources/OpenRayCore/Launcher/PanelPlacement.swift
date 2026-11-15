@@ -23,13 +23,30 @@ public enum PanelPlacement {
     /// The launcher panel's frame: on the display under the mouse (the first display if the mouse
     /// is on none), centred horizontally, with a fixed top edge so results grow downward only.
     /// Whole points, in AppKit global coordinates.
+    ///
+    /// The panel stays inside the visible frame whenever it fits there: on a display too short
+    /// for the usual top edge it sits higher, with its bottom edge on the bottom of the visible
+    /// frame. A panel larger than the visible frame cannot fit. It then keeps its top-left
+    /// corner, where the search field is, inside the visible frame and runs off the bottom or
+    /// the right.
     public static func frame(displays: [DisplayGeometry], mouse: CGPoint, size: CGSize) -> CGRect {
         guard let display = display(under: mouse, in: displays) else {
             return CGRect(origin: .zero, size: size)
         }
         let visible = display.visibleFrame
-        let top = (visible.maxY - visible.height * topInsetFraction).rounded()
-        let left = (visible.midX - size.width / 2).rounded()
+
+        var top = visible.maxY - visible.height * topInsetFraction
+        // Raised until the bottom edge is inside, but never past the top of the visible frame.
+        // The second line wins when the panel is taller than the visible frame.
+        top = max(top, visible.minY + size.height)
+        top = min(top, visible.maxY)
+
+        // A centred panel is inside the visible frame unless it is wider than it.
+        var left = visible.midX - size.width / 2
+        left = max(left, visible.minX)
+
+        top = top.rounded()
+        left = left.rounded()
         return CGRect(x: left, y: top - size.height, width: size.width, height: size.height)
     }
 

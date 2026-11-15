@@ -79,6 +79,8 @@ final class LauncherController: NSObject, NSWindowDelegate, LauncherShell {
         guard panel.isVisible else { return }
         panel.orderOut(nil)
         latency.cancel()
+        // A Return still waiting for its results must not run an action once the panel is gone.
+        model.apply(.didHide)
         // After the panel has gone: while it is key, OpenRay counts as active even though the
         // app behind it is still frontmost.
         focusRestorer.restoreIfNeeded()

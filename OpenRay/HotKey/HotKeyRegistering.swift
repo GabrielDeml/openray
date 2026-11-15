@@ -12,7 +12,8 @@ nonisolated enum HotKeyError: Error, Equatable {
     case rejected(OSStatus)
 }
 
-/// Registers global hotkeys. `HotKeyCenter` is the real implementation; tests use a fake.
+/// Registers global hotkeys. `HotKeyCenter` is the only implementation so far; the protocol is
+/// where a test of `LauncherHotKey` puts a fake (docs/DESIGN.md, thin-shell rule).
 protocol HotKeyRegistering {
     /// Gives `slot` the hotkey `key`, replacing the one it had. On failure the slot keeps its
     /// previous hotkey.
@@ -20,5 +21,8 @@ protocol HotKeyRegistering {
     func unregister(_ slot: HotKeySlot)
     /// Releases every hotkey until `resumeAll()`, so that a recorder can see the chords.
     func suspendAll()
-    func resumeAll()
+    /// Registers the suspended hotkeys again.
+    /// - Returns: The slots whose hotkey could not be registered again, and why. They are left
+    ///   without a hotkey, as after `unregister`.
+    func resumeAll() -> [HotKeySlot: HotKeyError]
 }

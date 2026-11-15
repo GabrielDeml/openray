@@ -137,8 +137,15 @@ final class LauncherModel {
             do {
                 rows = try await source.results(for: SearchQuery(query)) ?? []
             } catch {
-                Log.launcher.error("Search failed: \(error)")
+                // A source that honours cancellation throws when the next search cancels this
+                // one. Every search but the last ends that way, so it is not worth logging.
+                if !Task.isCancelled {
+                    Log.launcher.error("Search failed: \(error)")
+                }
             }
+            // A search that failed still publishes, with no rows: the reducer waits for an
+            // answer to every search. One that was replaced is dropped in `publish`, by its
+            // generation.
             publish(rows, generation: generation)
         }
     }
