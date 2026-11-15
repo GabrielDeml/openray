@@ -7,6 +7,9 @@ public enum Log {
     public static let storage = Logger(subsystem: AppInfo.bundleIdentifier, category: "storage")
     public static let permissions = Logger(
         subsystem: AppInfo.bundleIdentifier, category: "permissions")
+    /// Quick AI. A request's ID and how it ended are logged; keys, questions and replies never
+    /// are.
+    public static let ai = Logger(subsystem: AppInfo.bundleIdentifier, category: "ai")
 }
 
 /// The app's single signposter and the names of its intervals, viewed in Instruments against the

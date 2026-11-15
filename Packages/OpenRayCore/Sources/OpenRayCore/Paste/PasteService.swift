@@ -143,12 +143,16 @@ extension Preferences {
 }
 
 extension ActionOutcome {
+    /// What the HUD says after something was copied.
+    static var copiedToClipboardMessage: String {
+        String(
+            localized: "Copied to Clipboard", bundle: .module,
+            comment: "HUD message after an action copied something.")
+    }
+
     /// What an action returns after it has copied something: the launcher closes and the HUD
     /// says that the content is on the clipboard.
     public static var copiedToClipboard: ActionOutcome {
-        let message = String(
-            localized: "Copied to Clipboard", bundle: .module,
-            comment: "HUD message after an action copied something.")
-        return .showHUD(message)
+        .showHUD(copiedToClipboardMessage)
     }
 }

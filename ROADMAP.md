@@ -57,7 +57,7 @@ later milestones extend them and never replace them.
 
 - The first provider is the Claude API with the user's own key. It sits behind
   a small provider protocol so others (for example local models through
-  Ollama) can be added without touching the UI.
+  Ollama) can be added without changing how the chat works.
 - The key is stored in the macOS Keychain, never in a file.
 - Not in the first version: saved chat history, custom AI commands, attaching
   files or screenshots.

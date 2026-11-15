@@ -59,10 +59,10 @@ final class LauncherModel {
         let isPrimary: Bool
     }
 
-    /// An action together with the item it acts on; a screen's own action has no item.
+    /// An action together with the row it acts on; a screen's own action has no row.
     private struct ActionTarget {
         let action: ActionDescriptor
-        let item: SearchItem?
+        let row: ScoredItem?
     }
 
     private static let rootSearchBar = SearchBarAppearance(
@@ -89,9 +89,12 @@ final class LauncherModel {
     /// Whoever asked the confirmation that is up, waiting for the answer.
     @ObservationIgnored private var confirmationAnswer: CheckedContinuation<Bool, Never>?
 
+    /// - Parameter tabFallback: The screen Tab opens from root search for a query whose
+    ///   selected row has no Tab target of its own, or nil when no feature takes the query.
     init(
         search: SearchSession, usage: any UsageStore, screenRegistry: ScreenRegistry,
-        permissions: any PermissionChecking, hud: HUDController, pasteService: PasteService
+        permissions: any PermissionChecking, hud: HUDController, pasteService: PasteService,
+        tabFallback: ScreenRequest?
     ) {
         self.search = search
         self.usage = usage
@@ -99,6 +102,7 @@ final class LauncherModel {
         self.permissions = permissions
         self.hud = hud
         self.pasteService = pasteService
+        state.tabFallback = tabFallback
         search.onResults = { [weak self] results in
             self?.receive(results)
         }
@@ -115,13 +119,13 @@ final class LauncherModel {
 
     var selectedItem: SearchItem? {
         guard let selection = state.top.selection else { return nil }
-        return item(withID: selection)
+        return row(withID: selection)?.item
     }
 
-    private func item(withID id: ItemID) -> SearchItem? {
+    private func row(withID id: ItemID) -> ScoredItem? {
         for section in visibleSections {
             for row in section.rows {
-                if row.item.id == id { return row.item }
+                if row.item.id == id { return row }
             }
         }
         return nil
@@ -430,14 +434,16 @@ final class LauncherModel {
 
     private func target(of actionID: ActionID, on itemID: ItemID?) -> ActionTarget? {
         if let itemID {
-            guard let item = item(withID: itemID) else { return nil }
-            guard let action = item.actions.first(where: { $0.id == actionID }) else { return nil }
-            return ActionTarget(action: action, item: item)
+            guard let row = row(withID: itemID) else { return nil }
+            guard let action = row.item.actions.first(where: { $0.id == actionID }) else {
+                return nil
+            }
+            return ActionTarget(action: action, row: row)
         }
         // An action without an item belongs to the screen on top.
         let screenActions = topScreen?.context.screenActions ?? []
         guard let action = screenActions.first(where: { $0.id == actionID }) else { return nil }
-        return ActionTarget(action: action, item: nil)
+        return ActionTarget(action: action, row: nil)
     }
 
     private func perform(_ actionID: ActionID, on itemID: ItemID?) {
@@ -461,9 +467,12 @@ final class LauncherModel {
             ) {
                 // Picks are counted for the items of root search and of list screens. A
                 // screen's own action has no item to count.
-                if let item = target.item {
-                    recordPick(of: item.id, query: query)
-                }
+                guard let row = target.row else { return }
+                // A fallback row was not found by the query. It is handed the query to act
+                // on, as a web search or as a question for Quick AI, and that is nothing to
+                // learn from and nothing to keep on disk (§4.2.7).
+                let isFallbackRow = row.placement == .fallback
+                recordPick(of: row.item.id, query: isFallbackRow ? "" : query)
             }
 
             let outcome: ActionOutcome

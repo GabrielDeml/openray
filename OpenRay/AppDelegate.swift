@@ -105,6 +105,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             preferences: preferences,
             preferencesStore: preferencesStore,
             permissions: permissions,
+            secrets: KeychainSecretStore(),
             system: MacSystemControl(appleEvents: AppleEventSender()),
             workspace: workspace,
             currentItems: currentItems,
@@ -121,10 +122,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let pasteHost = MacPasteHost(focusRestorer: focusRestorer, hud: hud)
         let pasteService = PasteService(
             host: pasteHost, permissions: permissions, preferences: preferences)
+        // The first feature that has one decides what Tab opens for a query.
+        var tabFallback: ScreenRequest?
+        for feature in features {
+            if let request = feature.tabFallback {
+                tabFallback = request
+                break
+            }
+        }
         let model = LauncherModel(
             search: search, usage: storage.usage,
             screenRegistry: ScreenRegistry(features: features, env: env),
-            permissions: permissions, hud: hud, pasteService: pasteService)
+            permissions: permissions, hud: hud, pasteService: pasteService,
+            tabFallback: tabFallback)
         let launcher = LauncherController(model: model, focusRestorer: focusRestorer)
         launcher.onOpenSettings = { [unowned self] in showSettings() }
         pasteHost.launcher = launcher

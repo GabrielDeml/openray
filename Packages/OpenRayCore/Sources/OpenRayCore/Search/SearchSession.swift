@@ -242,7 +242,7 @@ import os
 /// What one search has gathered so far, and how that is laid out in sections.
 private struct SearchProgress {
     /// "Ask AI" leads the fallback section, whether or not the user's list names it (§4.2.9).
-    private static let askAI = ItemID.command(FeatureID(rawValue: "ai"), "ask")
+    private static let askAI = QuickAISource.askItemID
 
     let query: SearchQuery
     let sources: [any SearchSource]

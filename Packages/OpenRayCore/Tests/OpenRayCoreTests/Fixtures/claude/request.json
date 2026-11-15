@@ -1,0 +1,51 @@
+{
+  "model": "claude-haiku-5-5",
+  "max_tokens": 8192,
+  "stream": true,
+  "system": [
+    {
+      "type": "text",
+      "text": "You answer questions typed into OpenRay."
+    }
+  ],
+  "messages": [
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "What is the capital of Switzerland?"
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "thinking",
+          "thinking": "",
+          "signature": "EqQBCgIYAhIM1gbcDa9GJwZA2b3hGgxBdjrkzLoky3dl1pkiMOYds/Hk+9Qm7xT2vLw=="
+        },
+        {
+          "type": "text",
+          "text": "Bern."
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "text",
+          "text": "And of Austria?"
+        }
+      ]
+    }
+  ],
+  "output_config": {
+    "effort": "low"
+  },
+  "cache_control": {
+    "type": "ephemeral"
+  }
+}

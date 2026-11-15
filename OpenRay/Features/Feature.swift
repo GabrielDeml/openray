@@ -16,6 +16,10 @@ protocol Feature: AnyObject {
     /// The Mac woke from sleep. A feature that follows the system through notifications may
     /// have missed some while it slept.
     func systemDidWake()
+    /// The screen Tab opens from root search when the selected row has none of its own. The
+    /// launcher adds the query as the request's argument (§4.1.4). nil for every feature but
+    /// the one that takes the query.
+    var tabFallback: ScreenRequest? { get }
 }
 
 extension Feature {
@@ -28,6 +32,8 @@ extension Feature {
     ) -> ScreenSpec? {
         nil
     }
+
+    var tabFallback: ScreenRequest? { nil }
 }
 
 /// The services features share, built once by `AppDelegate`.
@@ -40,6 +46,8 @@ struct FeatureEnvironment {
     /// actor.
     let preferencesStore: any PreferencesStore
     let permissions: PermissionCenter
+    /// Where secrets are kept: the Keychain.
+    let secrets: any SecretStore
     let system: any SystemControl
     let workspace: WorkspaceActions
     /// Everything the launcher's sources have yielded so far (`CommandRegistry.items`), for a

@@ -83,7 +83,7 @@ struct OnboardingView: View {
             )
             .multilineTextAlignment(.center)
             Text(
-                "OpenRay sends no telemetry. Nothing you type leaves this Mac unless a command you run sends it somewhere, such as a web search."
+                "OpenRay sends no telemetry. Nothing you type leaves this Mac unless a command you run sends it somewhere, such as a web search or a question to Quick AI."
             )
             .font(.callout)
             .foregroundStyle(.secondary)

@@ -149,7 +149,11 @@ public struct KeyRouter: Sendable {
             case VirtualKey.delete:
                 // Delete on an empty field leaves the screen. While the action panel is open the
                 // field holds the panel's filter, and Delete stays an editing key.
-                if context.queryIsEmpty && context.depth > 0 && !context.actionPanelOpen {
+                let leavesScreen =
+                    context.queryIsEmpty && context.depth > 0 && !context.actionPanelOpen
+                // Whoever holds Delete to empty the field does not mean to leave once it is
+                // empty. Leaving takes a press of its own.
+                if leavesScreen && !context.keyIsRepeating {
                     return .back
                 }
                 return nil

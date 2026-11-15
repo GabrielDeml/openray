@@ -94,6 +94,16 @@ import OpenRayCore
         #expect(intent(VirtualKey.delete, in: filteringActions) == nil)
     }
 
+    // Holding Delete is how a half-written line is thrown away. The repeat that comes after
+    // the last character is gone must not throw the screen away with it.
+    @Test func heldDeleteDoesNotGoBack() {
+        let repeating = KeyRouter.Context(queryIsEmpty: true, depth: 1, keyIsRepeating: true)
+
+        #expect(intent(VirtualKey.delete, in: repeating) == nil)
+        // ⌘[ has nothing to do with editing, and goes back however long it is held.
+        #expect(intent(VirtualKey.ansiLeftBracket, [.command], "[", in: repeating) == .back)
+    }
+
     @Test func commandCommaOpensSettings() {
         #expect(intent(VirtualKey.ansiComma, [.command], ",") == .openSettings)
     }

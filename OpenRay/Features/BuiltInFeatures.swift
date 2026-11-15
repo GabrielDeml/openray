@@ -13,6 +13,7 @@ enum BuiltInFeatures {
             SystemCommandsFeature(),
             QuicklinksFeature(),
             CalculatorFeature(),
+            QuickAIFeature(),
             OpenRayFeature(),
             PermissionsFeature(),
         ]
