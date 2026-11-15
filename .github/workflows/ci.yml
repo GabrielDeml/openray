@@ -46,6 +46,11 @@ jobs:
             exit 1
           fi
 
+      # The release job runs these scripts only when a tag is pushed, which is too late to
+      # learn that one of them is broken (docs/DESIGN.md §6.3).
+      - name: Test release scripts
+        run: bash Scripts/test-release-scripts.sh
+
       - name: Test core package
         run: swift test --force-resolved-versions --package-path Packages/OpenRayCore
 
@@ -59,3 +64,33 @@ jobs:
           -disableAutomaticPackageResolution
           build
           CODE_SIGNING_ALLOWED=NO
+
+      # The configuration that the release job archives. Without this step its first compile on
+      # this toolchain would be the one after a tag was pushed.
+      - name: Build app (Release)
+        run: >
+          xcodebuild
+          -project OpenRay.xcodeproj
+          -scheme OpenRay
+          -configuration Release
+          -destination 'platform=macOS'
+          -disableAutomaticPackageResolution
+          build
+          CODE_SIGNING_ALLOWED=NO
+
+      # docs/DESIGN.md §5.4. The benchmarks print how long ranking and the reducer take and
+      # assert nothing, and a hosted runner is too noisy to hold them to a budget. This step
+      # cannot fail the job: the numbers are there to be read in the log. The release
+      # configuration is what a user runs; -enable-testing is what lets the benchmarks reach
+      # the internals of the package in that configuration.
+      - name: Run core benchmarks
+        continue-on-error: true
+        env:
+          OPENRAY_BENCHMARKS: "1"
+        run: >
+          swift test
+          --force-resolved-versions
+          --package-path Packages/OpenRayCore
+          -c release
+          -Xswiftc -enable-testing
+          --filter OpenRayCoreBenchmarks

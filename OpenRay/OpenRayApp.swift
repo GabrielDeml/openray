@@ -7,7 +7,7 @@ struct OpenRayApp: App {
 
     var body: some Scene {
         MenuBarExtra(AppInfo.name, systemImage: "magnifyingglass") {
-            MenuBarMenu(hotKey: appDelegate.launcherHotKey) { pane in
+            MenuBarMenu(hotKey: appDelegate.launcherHotKey, updates: appDelegate.updates) { pane in
                 appDelegate.showSettings(pane: pane)
             }
         }

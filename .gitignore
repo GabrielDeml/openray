@@ -6,6 +6,9 @@ xcuserdata/
 DerivedData/
 build/
 
+# Your own build settings, read by Config/Debug.xcconfig and Config/Release.xcconfig
+Config/Local.xcconfig
+
 # Swift Package Manager
 .build/
 .swiftpm/

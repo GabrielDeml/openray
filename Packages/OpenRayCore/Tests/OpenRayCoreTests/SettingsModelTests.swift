@@ -108,17 +108,32 @@ import Testing
 @MainActor @Suite struct OnboardingModelTests {
     private let preferences = Preferences(store: InMemoryPreferencesStore())
     private let loginController = FakeLoginItem()
+    private let updater = FakeUpdater()
 
-    private func makeModel() -> OnboardingModel {
+    private func makeModel(
+        updaterAvailability: UpdaterAvailability = .available
+    ) -> OnboardingModel {
         OnboardingModel(
-            preferences: preferences, loginItem: LoginItemModel(controller: loginController))
+            preferences: preferences, loginItem: LoginItemModel(controller: loginController),
+            updates: UpdatesModel(updater: updater, availability: updaterAvailability))
+    }
+
+    /// A model that is on the updates step, as a new user gets there.
+    private func makeModelOnUpdatesStep(
+        updaterAvailability: UpdaterAvailability = .available
+    ) -> OnboardingModel {
+        let model = makeModel(updaterAvailability: updaterAvailability)
+        model.advance()
+        model.advance()
+        model.advance()
+        return model
     }
 
     @Test func newUserSeesEveryStepInOrder() {
         let model = makeModel()
 
         #expect(OnboardingModel.isNeeded(completedVersion: 0))
-        #expect(model.steps == [.welcome, .hotKey, .launchAtLogin, .permissions])
+        #expect(model.steps == [.welcome, .hotKey, .launchAtLogin, .updates, .permissions])
         #expect(model.currentStep == .welcome)
     }
 
@@ -128,7 +143,16 @@ import Testing
         let model = makeModel()
 
         #expect(OnboardingModel.isNeeded(completedVersion: 1))
-        #expect(model.steps == [.permissions])
+        #expect(model.steps == [.updates, .permissions])
+    }
+
+    @Test func userOfTheVersionBeforeSeesOnlyTheUpdatesStep() {
+        preferences.onboardingCompletedVersion = 2
+
+        let model = makeModel()
+
+        #expect(OnboardingModel.isNeeded(completedVersion: 2))
+        #expect(model.steps == [.updates])
         #expect(model.isOnLastStep)
     }
 
@@ -191,7 +215,7 @@ import Testing
         model.advance()
 
         #expect(loginController.status == .enabled)
-        #expect(model.currentStep == .permissions)
+        #expect(model.currentStep == .updates)
     }
 
     @Test func goingBackAndClearingTheCheckboxTakesTheLoginItemAwayAgain() {
@@ -221,8 +245,67 @@ import Testing
         #expect(loginController.status == .enabled)
     }
 
+    // The updater's own prompt and the Updates step ask the same question. Sparkle is told
+    // to keep its prompt back for as long as onboarding still has the step to show.
+    @Test func onboardingAsksAboutUpdatesUntilItsStepHasBeenShown() {
+        #expect(OnboardingModel.asksAboutUpdates(completedVersion: 0))
+        #expect(OnboardingModel.asksAboutUpdates(completedVersion: 1))
+        #expect(OnboardingModel.asksAboutUpdates(completedVersion: 2))
+        // Also when the window was closed before the step, which completes the version too.
+        #expect(
+            !OnboardingModel.asksAboutUpdates(completedVersion: OnboardingModel.currentVersion))
+    }
+
+    @Test func automaticUpdateChecksAreTurnedOnByContinueOnTheirStep() {
+        let model = makeModelOnUpdatesStep()
+        #expect(model.currentStep == .updates)
+        // On unless the user says otherwise.
+        #expect(model.wantsAutomaticUpdateChecks)
+
+        model.advance()
+
+        #expect(updater.automaticChecksWrites == [true])
+        #expect(model.currentStep == .permissions)
+    }
+
+    // "No" is written too: Sparkle asks with a prompt of its own for as long as the setting
+    // has no value.
+    @Test func clearedCheckboxTurnsAutomaticUpdateChecksOff() {
+        let model = makeModelOnUpdatesStep()
+
+        model.wantsAutomaticUpdateChecks = false
+        // The checkbox alone sets nothing.
+        #expect(updater.automaticChecksWrites.isEmpty)
+        model.advance()
+
+        #expect(updater.automaticChecksWrites == [false])
+    }
+
+    @Test func closingTheWindowBeforeTheUpdatesStepWasConfirmedSetsNothing() {
+        let model = makeModelOnUpdatesStep()
+
+        model.dismiss()
+
+        #expect(model.isFinished)
+        #expect(updater.automaticChecksWrites.isEmpty)
+    }
+
+    @Test(arguments: [UpdaterAvailability.developmentBuild, .notConfigured])
+    func buildThatCannotUpdateLeavesTheUpdaterAlone(_ availability: UpdaterAvailability) {
+        let model = makeModelOnUpdatesStep(updaterAvailability: availability)
+        // Nothing would check, so the box is not ticked. The view has it disabled.
+        #expect(!model.wantsAutomaticUpdateChecks)
+
+        model.wantsAutomaticUpdateChecks = true
+        model.advance()
+
+        #expect(updater.automaticChecksWrites.isEmpty)
+        #expect(model.currentStep == .permissions)
+    }
+
     @Test func finishingTheLastStepStoresTheVersion() {
         let model = makeModel()
+        model.advance()
         model.advance()
         model.advance()
         model.advance()
@@ -248,8 +331,8 @@ import Testing
         #expect(preferences.onboardingCompletedVersion == OnboardingModel.currentVersion)
     }
 
-    // The page after the checkbox is only text, and closing the window there must not lose
-    // what Continue confirmed on the page before.
+    // Closing the window on a later page must not lose what Continue confirmed on the page
+    // before.
     @Test func closingTheWindowOnALaterStepKeepsTheConfirmedChoice() {
         let model = makeModel()
         model.advance()

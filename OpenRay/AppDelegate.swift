@@ -7,11 +7,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private static let showPanelOnLaunchArgument = "-OpenRayShowPanelOnLaunch"
 
     let launcherHotKey: LauncherHotKey
+    let updates: UpdatesModel
 
     private let hotKeys = HotKeyCenter()
     private let preferencesStore = UserDefaultsPreferencesStore(defaults: .standard)
     private let preferences: Preferences
     private let loginItem: LoginItemModel
+    private let sparkle: SparkleUpdater
     /// Shared, so that the launcher returns to the app Settings was opened over.
     private let focusRestorer = FocusRestorer()
 
@@ -37,18 +39,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     #endif
 
     override init() {
+        #if DEBUG
+            let isDebugBuild = true
+        #else
+            let isDebugBuild = false
+        #endif
+
         preferences = Preferences(store: preferencesStore)
         launcherHotKey = LauncherHotKey(registrar: hotKeys, preferences: preferences)
         // A Debug build's login item would point into the build folder, so its switch is
         // shown but does nothing (docs/DESIGN.md §4.3.6).
-        #if DEBUG
-            let canChangeLoginItem = false
-        #else
-            let canChangeLoginItem = true
-        #endif
         loginItem = LoginItemModel(
-            controller: SMAppServiceLoginItem(), canChange: canChangeLoginItem)
+            controller: SMAppServiceLoginItem(), canChange: !isDebugBuild)
+
+        // A Debug build starts no updater, and neither does a build whose Info.plist has no
+        // public key yet (docs/DESIGN.md §6.4, §6.6).
+        let availability = UpdaterAvailability(
+            isDebugBuild: isDebugBuild,
+            feedURL: Bundle.main.object(forInfoDictionaryKey: "SUFeedURL") as? String,
+            publicKey: Bundle.main.object(forInfoDictionaryKey: "SUPublicEDKey") as? String)
+        sparkle = SparkleUpdater(focusRestorer: focusRestorer)
+        updates = UpdatesModel(updater: sparkle, availability: availability)
         super.init()
+        sparkle.model = updates
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -70,6 +83,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         hotKeys.onPress = { [unowned self] _, eventTime in hotKeyPressed(at: eventTime) }
         launcherHotKey.registerAtLaunch()
+
+        // The one place the updater is started. The onboarding window opens further down,
+        // once the database is open, and asks about automatic checks itself if it has the
+        // Updates step.
+        if updates.isAvailable {
+            let onboardingAsksAboutUpdates = OnboardingModel.asksAboutUpdates(
+                completedVersion: preferences.onboardingCompletedVersion)
+            sparkle.start(onboardingAsksAboutUpdates: onboardingAsksAboutUpdates)
+        }
 
         NSWorkspace.shared.notificationCenter.addObserver(
             self, selector: #selector(didWake),
@@ -108,6 +130,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             secrets: KeychainSecretStore(),
             system: MacSystemControl(appleEvents: AppleEventSender()),
             workspace: workspace,
+            updates: updates,
             currentItems: currentItems,
             showSettings: { [weak self] pane in self?.showSettings(pane: pane) })
 
@@ -145,6 +168,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         var panes: [SettingsPane] = [
             .general(hotKey: launcherHotKey, loginItem: loginItem, permissions: permissionList),
             .commands(model: commandsSettings),
+            .about(),
         ]
         for feature in features {
             if let pane = feature.settingsPane(env) {
@@ -206,9 +230,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func showOnboarding() {
-        let model = OnboardingModel(preferences: preferences, loginItem: loginItem)
+        let model = OnboardingModel(
+            preferences: preferences, loginItem: loginItem, updates: updates)
         let window = OnboardingWindowController(
-            model: model, hotKey: launcherHotKey, loginItem: loginItem,
+            model: model, hotKey: launcherHotKey, loginItem: loginItem, updates: updates,
             focusRestorer: focusRestorer)
         onboardingModel = model
         onboarding = window

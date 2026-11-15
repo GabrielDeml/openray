@@ -2,6 +2,8 @@
 
 An open-source launcher for macOS: summon it with a hotkey, type, and act.
 
+<!-- The demo goes here, as docs/demo.gif (RELEASE_CHECKLIST.md, section 5). -->
+
 OpenRay is still early. Right now a global hotkey opens the launcher, and it
 finds and opens the apps on your Mac, ranking them by what you pick. It also
 runs system commands such as Sleep and Empty Trash, opens quicklinks with what
@@ -11,16 +13,36 @@ copies it, and ⌘Return pastes it into the app you came from once OpenRay has
 the Accessibility permission. Type a question and press Tab to ask Claude with
 your own Anthropic API key: the answer streams into the launcher, and
 follow-ups stay in the same thread. The key is kept in the macOS Keychain.
-Aliases, quicklinks, launch at login and the API key are set up in its settings
-window. See [ROADMAP.md](ROADMAP.md) for what is planned and in what order, and
-[docs/DESIGN.md](docs/DESIGN.md) for how it is built.
+Aliases, quicklinks, launch at login, the API key and updates are set up in its
+settings window, which also shows the version and the licences of what OpenRay
+is built with. A released build keeps itself up to date if you let it; a Debug
+build from source never looks for updates.
 
-## Requirements
+OpenRay sends no telemetry. [PRIVACY.md](PRIVACY.md) lists what it sends and
+what it stores.
 
-- macOS 26 or later
-- Xcode 26 or later
+## Install
+
+OpenRay needs macOS 26 or later.
+
+Releases start with v0.1.0. Once it is on the
+[Releases page](https://github.com/GabrielDeml/openray/releases), install
+OpenRay with Homebrew:
+
+```bash
+brew install gabrieldeml/openray/openray
+```
+
+or download `OpenRay-<version>.zip` from that page, unzip it and move OpenRay
+to your Applications folder. Either way it then keeps itself up to date, if
+you let it.
+
+While the Releases page is empty there is nothing to install, and the way to
+get OpenRay is to build it.
 
 ## Build and run
+
+Building needs Xcode 26 or later, and no Apple Developer account.
 
 Open `OpenRay.xcodeproj` in Xcode and run the `OpenRay` scheme, or build from
 the command line:
@@ -29,8 +51,10 @@ the command line:
 xcodebuild -project OpenRay.xcodeproj -scheme OpenRay build
 ```
 
-The first build downloads [GRDB](https://github.com/groue/GRDB.swift), the
-only dependency, so it needs a network connection.
+The first build downloads the two dependencies,
+[GRDB](https://github.com/groue/GRDB.swift) and
+[Sparkle](https://github.com/sparkle-project/Sparkle), so it needs a network
+connection.
 
 ## Test
 
@@ -46,10 +70,24 @@ swift test --package-path Packages/OpenRayCore
 - `OpenRay/` is the app target: windows, views and system integration.
 - `Packages/OpenRayCore/` is the core logic: matching, ranking, the command
   model and storage.
-- `Config/` holds the app's entitlements.
-- `Scripts/` holds the script that records Claude API responses as test
-  fixtures. Nothing in the build or the tests calls the API; this script
-  does, and only when you run it with a key.
+- `Config/` holds the build settings, the entitlements and the Info.plist
+  keys that Xcode does not generate.
+- `Scripts/` holds the scripts of the release job, with their tests, and the
+  script that records Claude API responses as test fixtures. Nothing in the
+  build or the tests calls the API; that script does, and only when you run
+  it with a key.
+- `Casks/` holds the Homebrew cask. The release job copies it to the tap.
+- `docs/` holds the design.
+
+## More
+
+- [ROADMAP.md](ROADMAP.md): what is planned and in what order.
+- [docs/DESIGN.md](docs/DESIGN.md): how it is built.
+- [CONTRIBUTING.md](CONTRIBUTING.md): building, testing and changing OpenRay.
+- [PRIVACY.md](PRIVACY.md): what leaves your Mac and what is kept on it.
+- [DEPENDENCIES.md](DEPENDENCIES.md): the two libraries OpenRay ships with.
+- [CHANGELOG.md](CHANGELOG.md): what changed in each release.
+- [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md): how a release is made.
 
 ## Licence
 

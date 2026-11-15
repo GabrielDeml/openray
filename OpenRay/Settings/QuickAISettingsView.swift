@@ -5,8 +5,7 @@ extension SettingsPane {
     static let quickAIID = "quick-ai"
 }
 
-/// Where the pane's links lead. Not yet checked against the live pages (docs/DESIGN.md §8,
-/// item 14).
+/// Where the pane's links lead.
 private enum QuickAILinks {
     /// The terms Anthropic handles API data under, which the privacy statement names.
     static let commercialTerms = URL(string: "https://www.anthropic.com/legal/commercial-terms")!

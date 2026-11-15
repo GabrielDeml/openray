@@ -19,6 +19,8 @@ public enum OnboardingStep: Sendable, Equatable, CaseIterable {
     case welcome
     case hotKey
     case launchAtLogin
+    /// Whether OpenRay looks for updates on its own (§6.4).
+    case updates
     /// Text only: which permissions OpenRay can use and that each is asked for at first use.
     case permissions
 
@@ -29,13 +31,14 @@ public enum OnboardingStep: Sendable, Equatable, CaseIterable {
         switch self {
         case .welcome, .hotKey, .launchAtLogin: return 1
         case .permissions: return 2
+        case .updates: return 3
         }
     }
 }
 
 /// Walks a user through the onboarding steps they have not seen.
 @MainActor @Observable public final class OnboardingModel {
-    public static let currentVersion = 2
+    public static let currentVersion = 3
 
     /// The steps this user is shown, in order. Never empty while onboarding is needed.
     public let steps: [OnboardingStep]
@@ -45,16 +48,22 @@ public enum OnboardingStep: Sendable, Equatable, CaseIterable {
     /// The checkbox of the launch-at-login step. It starts as macOS has it, and nothing is
     /// registered or removed until Continue on that step.
     public var wantsLaunchAtLogin: Bool
+    /// The checkbox of the updates step. Ticked to begin with where the build can update
+    /// itself, and nothing is set until Continue on that step.
+    public var wantsAutomaticUpdateChecks: Bool
     /// True once the user has been through every step or has closed the window.
     public private(set) var isFinished = false
 
     @ObservationIgnored private let preferences: Preferences
     @ObservationIgnored private let loginItem: LoginItemModel
+    @ObservationIgnored private let updates: UpdatesModel
 
-    public init(preferences: Preferences, loginItem: LoginItemModel) {
+    public init(preferences: Preferences, loginItem: LoginItemModel, updates: UpdatesModel) {
         self.preferences = preferences
         self.loginItem = loginItem
+        self.updates = updates
         wantsLaunchAtLogin = loginItem.isOn
+        wantsAutomaticUpdateChecks = updates.isAvailable
         steps = Self.steps(after: preferences.onboardingCompletedVersion)
     }
 
@@ -66,6 +75,13 @@ public enum OnboardingStep: Sendable, Equatable, CaseIterable {
     /// The steps added since the version the user has completed.
     public static func steps(after completedVersion: Int) -> [OnboardingStep] {
         OnboardingStep.allCases.filter { step in step.introducedInVersion > completedVersion }
+    }
+
+    /// Whether the onboarding that opens for this user has the Updates step. While it has, the
+    /// question about automatic checks is that step's, and the updater does not ask it with a
+    /// prompt of its own as well (docs/DESIGN.md §6.4).
+    public static func asksAboutUpdates(completedVersion: Int) -> Bool {
+        steps(after: completedVersion).contains(.updates)
     }
 
     public var currentStep: OnboardingStep? {
@@ -105,6 +121,12 @@ public enum OnboardingStep: Sendable, Equatable, CaseIterable {
         if currentStep == .launchAtLogin && wantsLaunchAtLogin != loginItem.isOn {
             // A failure is kept by the login item model, and the General pane shows it.
             loginItem.setEnabled(wantsLaunchAtLogin)
+        }
+        if currentStep == .updates {
+            // Set whether the box is ticked or not. The updater asks about automatic checks
+            // with a prompt of its own for as long as the setting has no value, and "no" is
+            // a value.
+            updates.setChecksAutomatically(wantsAutomaticUpdateChecks)
         }
 
         if isOnLastStep {

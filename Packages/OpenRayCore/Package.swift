@@ -34,5 +34,12 @@ let package = Package(
             resources: [.copy("Fixtures")],
             swiftSettings: swiftSettings
         ),
+        // Timings that are printed and never asserted (docs/DESIGN.md §5.4). Its suites run only
+        // when OPENRAY_BENCHMARKS=1 is set, so a plain `swift test` builds them and skips them.
+        .testTarget(
+            name: "OpenRayCoreBenchmarks",
+            dependencies: ["OpenRayCore"],
+            swiftSettings: swiftSettings
+        ),
     ]
 )

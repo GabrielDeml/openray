@@ -1,0 +1,440 @@
+name: Release
+
+# A pushed tag vX.Y.Z becomes a release: a signed and notarised OpenRay-X.Y.Z.zip on GitHub, the
+# appcast that Sparkle reads on GitHub Pages, and the cask in the Homebrew tap
+# (docs/DESIGN.md §6.2 to §6.5). RELEASE_CHECKLIST.md lists what has to exist before the first
+# tag: the secrets named below, the "release" environment, the gh-pages branch and the tap.
+#
+# A run that failed can be started again. It builds, signs and notarises again, replaces the
+# zip of the release, and the appcast and the cask then name the new zip. Once the appcast of
+# a release is being served, finish by hand instead, as RELEASE_CHECKLIST.md describes: until
+# the new appcast is served, installed copies would be offered a zip that does not match the
+# signature they have.
+
+on:
+  push:
+    tags: ['v*']
+
+# One release at a time, and a release that has started is never cancelled halfway.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+# With the shell named, GitHub runs every step with "-eo pipefail", so a step stops at the
+# first command that fails, also in the middle of a pipe.
+defaults:
+  run:
+    shell: bash
+
+env:
+  # Sparkle's command-line tools come from the release that the app links, as a tarball that is
+  # checked against this SHA-256 before anything in it runs. The hash was read on 2026-11-15
+  # from the "digest" of the asset Sparkle-2.10.1.tar.xz in
+  # https://api.github.com/repos/sparkle-project/Sparkle/releases/tags/2.10.1
+  SPARKLE_VERSION: 2.10.1
+  SPARKLE_TARBALL_SHA256: 1a856d2a9edb8e628de88121d7be04cf0e2167f8641650b78fca00b14244cf27
+  # The Homebrew tap. Its name without "homebrew-" is what people type:
+  # brew install gabrieldeml/openray/openray
+  TAP_REPOSITORY: GabrielDeml/homebrew-openray
+
+jobs:
+  release:
+    runs-on: macos-26
+    # The environment has a required reviewer, so nothing below runs, and no secret is read,
+    # before a person has approved the run.
+    environment: release
+    timeout-minutes: 60
+    permissions:
+      contents: write
+    steps:
+      # actions/checkout v7.0.1. The SHA was read on 2026-11-15 from
+      # https://api.github.com/repos/actions/checkout/commits/v7.0.1
+      #
+      # The whole history, because the build number is the number of commits, and all
+      # branches, because the appcast so far is on gh-pages. Without persist-credentials the
+      # job's token would stay in the checkout's Git configuration, where every later step
+      # could push with it, the build of the packages included. The step that pushes the
+      # appcast is handed the token itself.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Show toolchain
+        run: xcodebuild -version && swift --version
+
+      # docs/DESIGN.md §6.3, Versions. Sparkle compares build numbers, and the number of
+      # commits only ever grows along main. A tag on a side branch could carry a number that
+      # main has already used, or will use, for other code.
+      - name: Check that the tag is on main
+        run: |
+          if ! git merge-base --is-ancestor HEAD origin/main; then
+            echo "::error::The tag $GITHUB_REF_NAME is not on main. Releases are tagged on main only."
+            exit 1
+          fi
+
+      # The version is the tag without its v, and the build number is the number of commits.
+      # The paths are the ones the later steps share.
+      - name: Read the version and set the paths
+        run: |
+          version=$(Scripts/release-version.sh "$GITHUB_REF_NAME")
+          build=$(git rev-list --count HEAD)
+
+          echo "OpenRay $version, build $build"
+          {
+            echo "VERSION=$version"
+            echo "BUILD=$build"
+            echo "APP=$RUNNER_TEMP/export/OpenRay.app"
+            echo "KEYCHAIN=$RUNNER_TEMP/signing.keychain-db"
+            # The folder generate_appcast works in: the zip, its notes and the appcast.
+            echo "UPDATES=$RUNNER_TEMP/updates"
+          } >> "$GITHUB_ENV"
+          mkdir "$RUNNER_TEMP/updates"
+
+      # The section of CHANGELOG.md is the text of the GitHub release, and generate_appcast
+      # takes a file with the name of the zip and the extension .md as the notes of the update.
+      - name: Extract the release notes
+        run: Scripts/changelog-section.sh "$VERSION" > "$UPDATES/OpenRay-$VERSION.md"
+
+      # Everything that would otherwise only fail after the app has been signed and notarised,
+      # or after the release is out.
+      - name: Check what the release needs
+        env:
+          # Whether each secret has a value, and not the value. A secret that was forgotten, or
+          # added under another name, reads as an empty string in the step that uses it.
+          # NOTARY_ISSUER_ID is not here: an Individual key has none.
+          HAS_DEVELOPER_ID_P12_BASE64: ${{ secrets.DEVELOPER_ID_P12_BASE64 != '' }}
+          HAS_DEVELOPER_ID_P12_PASSWORD: ${{ secrets.DEVELOPER_ID_P12_PASSWORD != '' }}
+          HAS_NOTARY_KEY_P8_BASE64: ${{ secrets.NOTARY_KEY_P8_BASE64 != '' }}
+          HAS_NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID != '' }}
+          HAS_SPARKLE_ED_PRIVATE_KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY != '' }}
+          HAS_HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN != '' }}
+        run: |
+          missing_secrets=0
+          require_secret() {
+            local name=$1
+            local has_value=$2
+            if [ "$has_value" != "true" ]; then
+              echo "::error::The release environment has no secret $name (RELEASE_CHECKLIST.md)."
+              missing_secrets=1
+            fi
+          }
+          require_secret DEVELOPER_ID_P12_BASE64 "$HAS_DEVELOPER_ID_P12_BASE64"
+          require_secret DEVELOPER_ID_P12_PASSWORD "$HAS_DEVELOPER_ID_P12_PASSWORD"
+          require_secret NOTARY_KEY_P8_BASE64 "$HAS_NOTARY_KEY_P8_BASE64"
+          require_secret NOTARY_KEY_ID "$HAS_NOTARY_KEY_ID"
+          require_secret SPARKLE_ED_PRIVATE_KEY "$HAS_SPARKLE_ED_PRIVATE_KEY"
+          require_secret HOMEBREW_TAP_TOKEN "$HAS_HOMEBREW_TAP_TOKEN"
+          if [ "$missing_secrets" -ne 0 ]; then
+            exit 1
+          fi
+
+          public_key=$(sed -n -E 's/^SPARKLE_PUBLIC_ED_KEY[[:space:]]*=[[:space:]]*//p' Config/Shared.xcconfig)
+          if [ -z "$public_key" ]; then
+            echo "::error::SPARKLE_PUBLIC_ED_KEY in Config/Shared.xcconfig is empty. A build without it never updates itself (RELEASE_CHECKLIST.md)."
+            exit 1
+          fi
+
+          if ! git rev-parse --verify --quiet origin/gh-pages > /dev/null; then
+            echo "::error::There is no gh-pages branch to publish the appcast on (RELEASE_CHECKLIST.md)."
+            exit 1
+          fi
+
+          # The tap is public, so this asks without a token. For a repository that does not
+          # exist, or is private, GitHub wants a login: Git is kept from asking a credential
+          # helper or the terminal for one and fails.
+          if ! GIT_TERMINAL_PROMPT=0 git -c credential.helper= \
+            ls-remote --exit-code "https://github.com/$TAP_REPOSITORY.git" HEAD > /dev/null; then
+            echo "::error::The tap $TAP_REPOSITORY does not exist, is not public or has no commit yet (RELEASE_CHECKLIST.md)."
+            exit 1
+          fi
+
+          # The tools must be the ones of the Sparkle that the app links.
+          resolved=OpenRay.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
+          linked_sparkle=$(jq -r '.pins[] | select(.identity == "sparkle") | .state.version' "$resolved")
+          if [ "$linked_sparkle" != "$SPARKLE_VERSION" ]; then
+            echo "::error::The app links Sparkle $linked_sparkle and this workflow pins the tools of $SPARKLE_VERSION. Update SPARKLE_VERSION and SPARKLE_TARBALL_SHA256."
+            exit 1
+          fi
+
+      - name: Fetch Sparkle's tools
+        run: |
+          tarball="$RUNNER_TEMP/Sparkle-$SPARKLE_VERSION.tar.xz"
+          curl --fail --location --silent --show-error --output "$tarball" \
+            "https://github.com/sparkle-project/Sparkle/releases/download/$SPARKLE_VERSION/Sparkle-$SPARKLE_VERSION.tar.xz"
+          echo "$SPARKLE_TARBALL_SHA256  $tarball" | shasum -a 256 -c -
+
+          mkdir "$RUNNER_TEMP/sparkle"
+          tar -xf "$tarball" -C "$RUNNER_TEMP/sparkle"
+
+      # GitHub's recipe for a signing certificate on a macOS runner (docs/DESIGN.md §6.3). The
+      # keychain exists for this run only, and its password is made up here and never leaves
+      # this step: the keychain stays unlocked for the six hours of its timeout.
+      - name: Import the Developer ID certificate
+        env:
+          DEVELOPER_ID_P12_BASE64: ${{ secrets.DEVELOPER_ID_P12_BASE64 }}
+          DEVELOPER_ID_P12_PASSWORD: ${{ secrets.DEVELOPER_ID_P12_PASSWORD }}
+        run: |
+          certificate="$RUNNER_TEMP/developer-id.p12"
+          keychain_password=$(openssl rand -base64 32)
+
+          printf '%s' "$DEVELOPER_ID_P12_BASE64" | base64 --decode > "$certificate"
+
+          security create-keychain -p "$keychain_password" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$keychain_password" "$KEYCHAIN"
+          security import "$certificate" -P "$DEVELOPER_ID_P12_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN"
+          security set-key-partition-list -S apple-tool:,apple: -k "$keychain_password" "$KEYCHAIN"
+          security list-keychain -d user -s "$KEYCHAIN"
+          rm "$certificate"
+
+          # The team is read off the certificate, which is why there is no secret for it.
+          # An identity is listed as: 1) <hash> "Developer ID Application: <name> (<team>)"
+          identities=$(security find-identity -v -p codesigning "$KEYCHAIN")
+          team=$(echo "$identities" | sed -n -E 's/.*"Developer ID Application: .*\(([A-Z0-9]{10})\)".*/\1/p' | head -n 1)
+          if [ -z "$team" ]; then
+            echo "::error::DEVELOPER_ID_P12_BASE64 holds no valid Developer ID Application certificate with its private key."
+            exit 1
+          fi
+          echo "TEAM_ID=$team" >> "$GITHUB_ENV"
+
+      # docs/DESIGN.md §6.2, steps 1 and 2. The settings on the command line win over
+      # Config/*.xcconfig: the version of this release, and the Developer ID identity in place
+      # of the ad-hoc signature of a local build.
+      - name: Archive
+        run: >
+          xcodebuild archive
+          -project OpenRay.xcodeproj
+          -scheme OpenRay
+          -configuration Release
+          -destination 'generic/platform=macOS'
+          -archivePath "$RUNNER_TEMP/OpenRay.xcarchive"
+          -disableAutomaticPackageResolution
+          MARKETING_VERSION="$VERSION"
+          CURRENT_PROJECT_VERSION="$BUILD"
+          CODE_SIGN_STYLE=Manual
+          CODE_SIGN_IDENTITY="Developer ID Application"
+          DEVELOPMENT_TEAM="$TEAM_ID"
+
+      # Exporting signs the app again, from the inside out, which is what gets the helpers
+      # inside Sparkle.framework signed the way Sparkle's documentation asks for.
+      - name: Export
+        run: >
+          xcodebuild -exportArchive
+          -archivePath "$RUNNER_TEMP/OpenRay.xcarchive"
+          -exportPath "$RUNNER_TEMP/export"
+          -exportOptionsPlist Config/ExportOptions.plist
+
+      # What is wrong here would be wrong for good: an installed copy checks the feed and
+      # carries the bundle identifier and the key it was built with.
+      - name: Check the exported app
+        run: |
+          codesign --verify --deep --strict --verbose=2 "$APP"
+
+          # docs/DESIGN.md §6.1. Xcode adds get-task-allow to builds for debugging.
+          entitlements=$(codesign -d --entitlements - --xml "$APP")
+          if [[ "$entitlements" == *get-task-allow* ]]; then
+            echo "::error::The exported app carries the get-task-allow entitlement."
+            exit 1
+          fi
+
+          info="$APP/Contents/Info.plist"
+          short_version=$(plutil -extract CFBundleShortVersionString raw -o - "$info")
+          bundle_version=$(plutil -extract CFBundleVersion raw -o - "$info")
+          bundle_identifier=$(plutil -extract CFBundleIdentifier raw -o - "$info")
+          feed_url=$(plutil -extract SUFeedURL raw -o - "$info")
+          public_key=$(plutil -extract SUPublicEDKey raw -o - "$info")
+
+          if [ "$short_version" != "$VERSION" ] || [ "$bundle_version" != "$BUILD" ]; then
+            echo "::error::The app says it is $short_version ($bundle_version), not $VERSION ($BUILD)."
+            exit 1
+          fi
+          if [ -z "$public_key" ]; then
+            echo "::error::The app has no SUPublicEDKey."
+            exit 1
+          fi
+
+          # The cask repeats three things that the app or this job decides. They are compared
+          # as plain text with the lines of the cask.
+          if ! grep -q -F "url \"$feed_url\"" Casks/openray.rb; then
+            echo "::error::Casks/openray.rb does not check the feed of the app, $feed_url."
+            exit 1
+          fi
+          if ! grep -q -F "Application Support/$bundle_identifier\"" Casks/openray.rb; then
+            echo "::error::Casks/openray.rb does not zap the data of the app, $bundle_identifier."
+            exit 1
+          fi
+          download="url \"https://github.com/$GITHUB_REPOSITORY/releases/download/v#{version}/OpenRay-#{version}.zip\""
+          if ! grep -q -F "$download" Casks/openray.rb; then
+            echo "::error::Casks/openray.rb does not download from the releases of $GITHUB_REPOSITORY."
+            exit 1
+          fi
+
+          echo "FEED_URL=$feed_url" >> "$GITHUB_ENV"
+
+      # docs/DESIGN.md §6.2, steps 3 and 4. An Individual API key has no issuer:
+      # NOTARY_ISSUER_ID is then not set, and the script leaves --issuer out.
+      - name: Notarise
+        id: notarize
+        env:
+          NOTARY_KEY_P8_BASE64: ${{ secrets.NOTARY_KEY_P8_BASE64 }}
+          NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+          NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
+        run: |
+          ditto -c -k --keepParent "$APP" "$RUNNER_TEMP/OpenRay-to-notarise.zip"
+          Scripts/notarize.sh "$RUNNER_TEMP/OpenRay-to-notarise.zip" "$RUNNER_TEMP/notary-log.json"
+
+      # actions/upload-artifact v7.0.2. The SHA was read on 2026-11-15 from
+      # https://api.github.com/repos/actions/upload-artifact/commits/v7.0.2
+      - name: Upload the notary log
+        if: failure() && steps.notarize.conclusion == 'failure'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: notary-log
+          path: ${{ runner.temp }}/notary-log.json
+          if-no-files-found: ignore
+
+      # docs/DESIGN.md §6.2, steps 5 and 6. A zip cannot carry the ticket, so the app is
+      # stapled and zipped again, and that second zip is the release.
+      - name: Staple and zip
+        run: |
+          xcrun stapler staple "$APP"
+          ditto -c -k --keepParent "$APP" "$UPDATES/OpenRay-$VERSION.zip"
+          spctl -a -vv -t exec "$APP"
+
+      # docs/DESIGN.md §6.4. The appcast so far is copied in first, which is how its older
+      # entries stay. generate_appcast names the file after the last part of the app's
+      # SUFeedURL. --embed-release-notes puts the notes into the appcast itself: without it
+      # they would be a link to a file next to the feed, which nothing publishes.
+      - name: Generate the appcast
+        env:
+          SPARKLE_ED_PRIVATE_KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY }}
+        run: |
+          feed_file=$(basename "$FEED_URL")
+          if git cat-file -e "origin/gh-pages:$feed_file" 2> /dev/null; then
+            git show "origin/gh-pages:$feed_file" > "$UPDATES/$feed_file"
+          fi
+
+          echo "$SPARKLE_ED_PRIVATE_KEY" | "$RUNNER_TEMP/sparkle/bin/generate_appcast" \
+            --ed-key-file - \
+            --download-url-prefix "https://github.com/$GITHUB_REPOSITORY/releases/download/$GITHUB_REF_NAME/" \
+            --maximum-deltas 0 \
+            --embed-release-notes \
+            "$UPDATES"
+
+          appcast="$UPDATES/$feed_file"
+          xmllint --noout "$appcast"
+
+          # generate_appcast only warns when the private key is not the one whose public half
+          # is in the app, and then writes an entry without a signature, which every installed
+          # copy would refuse.
+          #
+          # The elements are sparkle:version and sparkle:shortVersionString, and the attribute
+          # is sparkle:edSignature. xmllint --xpath cannot be told what the prefix stands for,
+          # so they are matched by their local names.
+          entry="//item[*[local-name()='version']='$BUILD']"
+          short_version=$(xmllint --xpath "string($entry/*[local-name()='shortVersionString'])" "$appcast")
+          signature=$(xmllint --xpath "string($entry/enclosure/@*[local-name()='edSignature'])" "$appcast")
+          if [ "$short_version" != "$VERSION" ]; then
+            echo "::error::The appcast has no entry for $VERSION ($BUILD)."
+            exit 1
+          fi
+          if [ -z "$signature" ]; then
+            echo "::error::The entry for $VERSION is not signed. Is SPARKLE_ED_PRIVATE_KEY the private half of SPARKLE_PUBLIC_ED_KEY?"
+            exit 1
+          fi
+
+      # The zip is on GitHub before the appcast that points at it is. On a second run the
+      # release exists already, and its zip is replaced.
+      - name: Publish the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if ! gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
+            gh release create "$GITHUB_REF_NAME" --draft --verify-tag \
+              --title "OpenRay $VERSION" --notes-file "$UPDATES/OpenRay-$VERSION.md"
+          fi
+          gh release upload "$GITHUB_REF_NAME" "$UPDATES/OpenRay-$VERSION.zip" --clobber
+          gh release edit "$GITHUB_REF_NAME" --draft=false
+
+      - name: Publish the appcast
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          feed_file=$(basename "$FEED_URL")
+          pages="$RUNNER_TEMP/gh-pages"
+
+          git worktree add --detach "$pages" origin/gh-pages
+          cp "$UPDATES/$feed_file" "$pages/$feed_file"
+          git -C "$pages" add "$feed_file"
+
+          if git -C "$pages" diff --cached --quiet; then
+            echo "gh-pages has this appcast already."
+          else
+            git -C "$pages" \
+              -c user.name="github-actions[bot]" \
+              -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+              commit --message "Appcast for OpenRay $VERSION"
+            # The checkout has no credentials. Git asks this helper for the password, so the
+            # token is in no address, no argument and no file. The empty helper before it
+            # drops the helpers that the runner is configured with, which would otherwise be
+            # handed the token to keep.
+            token_helper='!f() { echo "username=x-access-token"; echo "password=$GH_TOKEN"; }; f'
+            git -c credential.helper= -c "credential.helper=$token_helper" \
+              push origin "$(git -C "$pages" rev-parse HEAD):refs/heads/gh-pages"
+          fi
+
+          # GitHub Pages takes a while to serve a push. The release is done when the address
+          # that installed copies ask is serving this appcast, byte for byte.
+          served="$RUNNER_TEMP/served-appcast.xml"
+          deadline=$((SECONDS + 900))
+          while true; do
+            if curl --fail --silent --location --output "$served" "$FEED_URL" \
+              && cmp -s "$served" "$UPDATES/$feed_file"; then
+              break
+            fi
+            if [ "$SECONDS" -ge "$deadline" ]; then
+              echo "::error::$FEED_URL is not serving the new appcast after 15 minutes. Do not run the job again before reading 'When a step fails' in RELEASE_CHECKLIST.md."
+              exit 1
+            fi
+            sleep 20
+          done
+          xmllint --noout "$served"
+
+      # docs/DESIGN.md §6.5. The tap's cask is this repository's cask with the version and the
+      # hash of the zip that was just published.
+      - name: Update the Homebrew tap
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          tap="$RUNNER_TEMP/tap"
+
+          # The same helper as for the push of the appcast, here with the tap's own token.
+          token_helper='!f() { echo "username=x-access-token"; echo "password=$HOMEBREW_TAP_TOKEN"; }; f'
+          git clone --config credential.helper= --config "credential.helper=$token_helper" \
+            "https://github.com/$TAP_REPOSITORY.git" "$tap"
+
+          mkdir -p "$tap/Casks"
+          cp Casks/openray.rb "$tap/Casks/openray.rb"
+          sha256=$(shasum -a 256 "$UPDATES/OpenRay-$VERSION.zip" | cut -d ' ' -f 1)
+          Scripts/update-cask.sh "$VERSION" "$sha256" "$tap/Casks/openray.rb"
+
+          git -C "$tap" add Casks/openray.rb
+          if git -C "$tap" diff --cached --quiet; then
+            echo "The tap has this cask already."
+          else
+            git -C "$tap" \
+              -c user.name="github-actions[bot]" \
+              -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+              commit --message "openray $VERSION"
+            git -C "$tap" push origin HEAD
+          fi
+
+      # Also after a failure and after a cancelled run.
+      - name: Remove the keychain
+        if: always()
+        run: |
+          if [ -n "${KEYCHAIN:-}" ] && [ -f "$KEYCHAIN" ]; then
+            security delete-keychain "$KEYCHAIN"
+          fi
+          rm -f "$RUNNER_TEMP/developer-id.p12"

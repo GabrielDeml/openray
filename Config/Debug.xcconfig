@@ -1,0 +1,24 @@
+// The Debug configuration: what a contributor builds and runs (docs/DESIGN.md §6.6).
+
+#include "Shared.xcconfig"
+
+DEBUG_INFORMATION_FORMAT = dwarf
+ENABLE_TESTABILITY = YES
+GCC_OPTIMIZATION_LEVEL = 0
+ONLY_ACTIVE_ARCH = YES
+SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG $(inherited)
+SWIFT_OPTIMIZATION_LEVEL = -Onone
+
+// An identifier of its own, so that a Debug build never shares permission grants, the login
+// item, defaults or the database with an installed release. The display name tells the two
+// apart wherever macOS shows one.
+PRODUCT_BUNDLE_IDENTIFIER = $(OPENRAY_BUNDLE_IDENTIFIER).debug
+INFOPLIST_KEY_CFBundleDisplayName = OpenRay Dev
+
+// The Debug file adds the entitlement that lets a hardened, ad-hoc signed build load
+// Sparkle.framework.
+CODE_SIGN_ENTITLEMENTS = Config/OpenRay-Debug.entitlements
+
+// Your own settings, such as the team to sign with (§6.6). The file is git-ignored and may
+// be missing.
+#include? "Local.xcconfig"

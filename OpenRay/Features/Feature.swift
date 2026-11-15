@@ -50,6 +50,8 @@ struct FeatureEnvironment {
     let secrets: any SecretStore
     let system: any SystemControl
     let workspace: WorkspaceActions
+    /// What the updater is set to and whether an update is waiting.
+    let updates: UpdatesModel
     /// Everything the launcher's sources have yielded so far (`CommandRegistry.items`), for a
     /// feature that says something about the commands of others. Empty while the features are
     /// still being asked for their sources.

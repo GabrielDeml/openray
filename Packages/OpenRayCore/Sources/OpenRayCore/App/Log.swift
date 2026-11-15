@@ -10,6 +10,9 @@ public enum Log {
     /// Quick AI. A request's ID and how it ended are logged; keys, questions and replies never
     /// are.
     public static let ai = Logger(subsystem: AppInfo.bundleIdentifier, category: "ai")
+    /// The updater. Sparkle logs its own work under its own subsystem; this is what OpenRay
+    /// has to say about it.
+    public static let updates = Logger(subsystem: AppInfo.bundleIdentifier, category: "updates")
 }
 
 /// The app's single signposter and the names of its intervals, viewed in Instruments against the

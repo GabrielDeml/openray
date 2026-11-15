@@ -14,6 +14,7 @@ enum BuiltInFeatures {
             QuicklinksFeature(),
             CalculatorFeature(),
             QuickAIFeature(),
+            UpdatesFeature(),
             OpenRayFeature(),
             PermissionsFeature(),
         ]

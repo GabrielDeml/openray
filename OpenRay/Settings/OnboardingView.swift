@@ -3,14 +3,14 @@ import OpenRayCore
 import SwiftUI
 
 /// The window a new user sees first: what OpenRay is, its hotkey, whether it opens at login,
-/// and how it deals with permissions (docs/DESIGN.md §4.3.7). It comes to the front the way
-/// Settings does.
+/// whether it looks for updates, and how it deals with permissions (docs/DESIGN.md §4.3.7). It
+/// comes to the front the way Settings does.
 final class OnboardingWindowController: ActivatingWindowController {
     private let model: OnboardingModel
 
     init(
         model: OnboardingModel, hotKey: LauncherHotKey, loginItem: LoginItemModel,
-        focusRestorer: FocusRestorer
+        updates: UpdatesModel, focusRestorer: FocusRestorer
     ) {
         self.model = model
         let window = NSWindow(
@@ -18,8 +18,9 @@ final class OnboardingWindowController: ActivatingWindowController {
         window.title = String(localized: "Welcome to \(AppInfo.name)")
         super.init(window: window, focusRestorer: focusRestorer)
 
-        let content = OnboardingView(model: model, hotKey: hotKey, loginItem: loginItem) {
-            [unowned self] in
+        let content = OnboardingView(
+            model: model, hotKey: hotKey, loginItem: loginItem, updates: updates
+        ) { [unowned self] in
             close()
         }
         window.contentViewController = NSHostingController(rootView: content)
@@ -38,6 +39,7 @@ struct OnboardingView: View {
     @Bindable var model: OnboardingModel
     let hotKey: LauncherHotKey
     let loginItem: LoginItemModel
+    let updates: UpdatesModel
     let close: () -> Void
 
     var body: some View {
@@ -47,6 +49,7 @@ struct OnboardingView: View {
                 case .welcome: welcomeStep
                 case .hotKey: hotKeyStep
                 case .launchAtLogin: launchAtLoginStep
+                case .updates: updatesStep
                 case .permissions: permissionsStep
                 case nil: EmptyView()
                 }
@@ -150,6 +153,31 @@ struct OnboardingView: View {
                     .foregroundStyle(.secondary)
             }
             Text("You can change this at any time in Settings › General.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var updatesStep: some View {
+        VStack(spacing: 14) {
+            Text("Stay up to date")
+                .font(.title2.weight(.semibold))
+            Text("OpenRay can look for new versions on its own and tell you when there is one.")
+                .multilineTextAlignment(.center)
+            Toggle("Check for updates automatically", isOn: $model.wantsAutomaticUpdateChecks)
+                .toggleStyle(.checkbox)
+                .disabled(!updates.isAvailable)
+            if let unavailableNote = updates.unavailableNote {
+                Text(unavailableNote)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+            Text(updates.whatACheckSends)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+            Text("You can change this at any time in Settings › Updates.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
         }

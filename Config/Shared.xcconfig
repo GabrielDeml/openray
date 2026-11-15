@@ -1,0 +1,73 @@
+// Build settings that Debug and Release share (docs/DESIGN.md §6.6).
+// Debug.xcconfig and Release.xcconfig include this file and add what differs.
+//
+// Values take no quotes here: a quote would become part of the value. Lists are separated by
+// spaces. "//" starts a comment anywhere on a line, also in the middle of a value.
+
+
+// What cannot change once a release has shipped (docs/DESIGN.md §8 and §6.4).
+
+// The bundle identifier (item 22). Debug.xcconfig appends ".debug".
+OPENRAY_BUNDLE_IDENTIFIER = io.github.gabrieldeml.openray
+
+// Where Sparkle looks for updates (item 21). The empty $() keeps the two slashes of the URL
+// apart, which would otherwise start a comment.
+SPARKLE_FEED_URL = https:/$()/gabrieldeml.github.io/openray/appcast.xml
+
+// The public EdDSA key that updates are checked against. It stays empty until the owner has run
+// Sparkle's generate_keys (RELEASE_CHECKLIST.md), and the updater is not started while it is
+// empty. The key is Base64: should it contain "//", write that as "/$()/" as in the URL above.
+SPARKLE_PUBLIC_ED_KEY =
+
+
+// Version. These are the values of a local build: the release job sets both, from the tag and
+// from the number of commits (§6.3).
+
+MARKETING_VERSION = 0.0.1
+CURRENT_PROJECT_VERSION = 1
+
+
+// Compiler and SDK.
+
+ALWAYS_SEARCH_USER_PATHS = NO
+CLANG_ENABLE_MODULES = YES
+CLANG_ENABLE_OBJC_ARC = YES
+COPY_PHASE_STRIP = NO
+ENABLE_STRICT_OBJC_MSGSEND = YES
+ENABLE_USER_SCRIPT_SANDBOXING = YES
+GCC_NO_COMMON_BLOCKS = YES
+MACOSX_DEPLOYMENT_TARGET = 26.0
+SDKROOT = macosx
+SWIFT_VERSION = 6.0
+
+// The concurrency model of §3.4. The package sets its own in Package.swift.
+SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor
+SWIFT_UPCOMING_FEATURE_NONISOLATED_NONSENDING_BY_DEFAULT = YES
+
+
+// The app.
+
+PRODUCT_NAME = $(TARGET_NAME)
+PRODUCT_BUNDLE_IDENTIFIER = $(OPENRAY_BUNDLE_IDENTIFIER)
+COMBINE_HIDPI_IMAGES = YES
+ENABLE_PREVIEWS = YES
+LD_RUNPATH_SEARCH_PATHS = $(inherited) @executable_path/../Frameworks
+SWIFT_EMIT_LOC_STRINGS = YES
+
+
+// Signing. Ad hoc unless Local.xcconfig or the release job says otherwise (§6.1, §6.6).
+
+CODE_SIGN_ENTITLEMENTS = Config/OpenRay.entitlements
+CODE_SIGN_IDENTITY = -
+CODE_SIGN_STYLE = Automatic
+ENABLE_HARDENED_RUNTIME = YES
+
+
+// Info.plist. Xcode writes it from the INFOPLIST_KEY_ settings and merges Config/Info.plist
+// into it, which holds the keys that have no such setting.
+
+GENERATE_INFOPLIST_FILE = YES
+INFOPLIST_FILE = Config/Info.plist
+INFOPLIST_KEY_LSApplicationCategoryType = public.app-category.productivity
+INFOPLIST_KEY_LSUIElement = YES
+INFOPLIST_KEY_NSAppleEventsUsageDescription = OpenRay sends commands to Finder, System Events and the login window when you run Empty Trash, Toggle Appearance, Restart, Shut Down or Log Out.

@@ -118,3 +118,35 @@ import OpenRayCore
         openedSettingsFor.append(permission)
     }
 }
+
+/// An updater that lives in the test: it keeps the two settings in memory, counts the checks
+/// it is asked for and never looks for an update.
+@MainActor final class FakeUpdater: UpdateControlling {
+    var automaticallyChecksForUpdates = false {
+        didSet { automaticChecksWrites.append(automaticallyChecksForUpdates) }
+    }
+    var canCheckForUpdates = true
+    var lastUpdateCheckDate: Date?
+
+    /// Every value automatic checks were set to, in order. Empty means the setting still has
+    /// no value, which is when Sparkle would ask the user with its own prompt.
+    private(set) var automaticChecksWrites: [Bool] = []
+    private(set) var checkCount = 0
+
+    private var wantsAutomaticDownloads = false
+
+    /// As Sparkle has it: updates are installed on their own only while they are also looked
+    /// for on their own, and the choice cannot be changed while they are not.
+    var automaticallyDownloadsUpdates: Bool {
+        get { automaticallyChecksForUpdates && wantsAutomaticDownloads }
+        set {
+            if automaticallyChecksForUpdates {
+                wantsAutomaticDownloads = newValue
+            }
+        }
+    }
+
+    func checkForUpdates() {
+        checkCount += 1
+    }
+}
