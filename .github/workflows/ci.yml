@@ -18,6 +18,16 @@ jobs:
       - name: Show toolchain
         run: xcodebuild -version && swift --version
 
+      # docs/DESIGN.md §3.1. Cocoa is covered because it re-exports AppKit. An import may follow
+      # attributes, an access level ("internal import") or another statement and a semicolon.
+      - name: Check core imports
+        run: |
+          pattern='(^|;)[[:space:]]*(@[[:alnum:]_]+(\([^)]*\))?[[:space:]]+)*((public|package|internal|fileprivate|private)[[:space:]]+)?import[[:space:]]+([[:alpha:]]+[[:space:]]+)?(AppKit|SwiftUI|Carbon|Cocoa)([^[:alnum:]_]|$)'
+          if grep -rnE --include='*.swift' "$pattern" Packages/OpenRayCore/Sources; then
+            echo "::error::OpenRayCore must not import AppKit, SwiftUI or Carbon"
+            exit 1
+          fi
+
       - name: Test core package
         run: swift test --package-path Packages/OpenRayCore
 

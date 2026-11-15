@@ -34,10 +34,10 @@ A few decisions shape everything else. The panel is a non-activating `NSPanel` a
 
 | Module | Contains | May import |
 |---|---|---|
-| `OpenRayCore` (Swift package, `Packages/OpenRayCore`) | Value types and protocols of the command model; key routing and navigation state; matching, ranking and frecency; the app index scanner; the database, migrations and stores; preferences; the calculator; clipboard capture rules; snippet rendering; window geometry; Spotlight queries; the script parser and runner; the Claude provider, SSE parser and Quick AI session; every feature's view model | Foundation, Observation, CoreGraphics, CoreServices, CryptoKit, os, GRDB |
+| `OpenRayCore` (Swift package, `Packages/OpenRayCore`) | Value types and protocols of the command model; key routing and navigation state; matching, ranking and frecency; the app index scanner; the database, migrations and stores; preferences; the calculator; clipboard capture rules; snippet rendering; window geometry; Spotlight queries; the script parser and runner; the Claude provider, SSE parser and Quick AI session; every feature's view model | Foundation, Observation, Synchronization, CoreGraphics, CoreServices, CryptoKit, os, GRDB |
 | App target (`OpenRay/`) | Windows and SwiftUI views; Carbon hotkeys; the key monitor; AppKit, Accessibility (AX), IOKit, Apple events, Keychain and ServiceManagement integration; pasteboard access; Sparkle; the composition root | Everything, including `OpenRayCore` |
 
-Dependencies run one way: the app target depends on `OpenRayCore`. `OpenRayCore` never imports AppKit, SwiftUI or Carbon. On macOS `import SwiftUI` re-exports AppKit, so SwiftUI is excluded too. CI enforces the rule by grepping Core's sources for those imports. Carbon constants that Core needs (virtual key codes, modifier bits) are copied as literals with a comment naming the header.
+Dependencies run one way: the app target depends on `OpenRayCore`. `OpenRayCore` never imports AppKit, SwiftUI or Carbon. On macOS `import SwiftUI` re-exports AppKit, so SwiftUI is excluded too. CI enforces the rule by grepping Core's sources for those imports, and for `Cocoa`, which re-exports AppKit too. Carbon and AppKit constants that Core needs (virtual key codes, Carbon modifier bits, `NSEvent` modifier-flag bits) are copied as literals with a comment naming the header.
 
 If features later need views inside the package, they go in a separate `OpenRayFeatures` target that depends on Core; Core itself stays UI-free.
 
@@ -47,7 +47,9 @@ If features later need views inside the package, they go in a separate `OpenRayF
 |---|---|---|
 | `AppDelegate` | App | Composition root. Owns every object below and the list of built-in features (`BuiltInFeatures.swift`). Attached to the SwiftUI `App` with `@NSApplicationDelegateAdaptor`; the `App` keeps the existing `MenuBarExtra`. |
 | `HotKeyCenter` | App | Registers the global hotkey with Carbon (§4.1.2). |
-| `LauncherController` | App | Shows and hides `LauncherPanel`, captures the previously frontmost app. |
+| `LauncherHotKey` | App | `@MainActor @Observable`. Keeps the `launcher.hotKey` preference and the registration in step, and holds what Settings and the menu-bar menu show when the hotkey is not working (§4.1.2). |
+| `LauncherController` | App | Shows, places and hides `LauncherPanel`; connects the search field and the key monitor to `LauncherModel`. |
+| `FocusRestorer` | App | Records the previously frontmost app and gives the keyboard back to it (§4.1.7). One instance, shared by the launcher and the settings window. |
 | `LauncherModel` | App | `@MainActor @Observable`. Holds `LauncherState`, executes its effects, holds the current results, runs actions, records picks. The only observable state the launcher views read. |
 | `LauncherState`, `KeyRouter` | Core | Pure navigation state machine and key-to-intent mapping (§4.1.3, §4.1.4). |
 | `CommandRegistry` | Core | Collects every source's indexed items into an immutable `IndexSnapshot` (§4.2.4). |
@@ -62,11 +64,11 @@ If features later need views inside the package, they go in a separate `OpenRayF
 
 ### 3.3 From hotkey to action
 
-1. The user presses the hotkey. Carbon delivers the event on the main run loop to `HotKeyCenter`, which calls `LauncherController.toggle()`.
-2. `LauncherController` records the frontmost app as `previousApp`, places the panel, applies `.willShow`, and makes the panel key with the search field as first responder.
+1. The user presses the hotkey. Carbon delivers the event on the main run loop to `HotKeyCenter`, whose `onPress` reaches `LauncherController.toggle()`.
+2. `LauncherController` has `FocusRestorer` record the frontmost app as `previousApp`, places the panel, applies `.willShow` (whose effects restart the root search and make the search field first responder), and makes the panel key.
 3. Each text change in the field becomes a `.queryChanged` intent. Other keys go through one local key monitor to `KeyRouter`, which returns an intent or lets the key fall through to the field editor.
 4. `LauncherModel` applies the intent to `LauncherState`. The reducer returns effects. At the root, a query change returns `.search(query:generation:)`, which `LauncherModel` passes to `SearchSession`.
-5. `SearchSession` cancels the previous search, matches the query against the `IndexSnapshot` and asks each source for query-specific results, all off the main actor. It publishes `SearchResults` tagged with the generation; `LauncherModel` drops stale generations and the list redraws.
+5. `SearchSession` cancels the previous search, matches the query against the `IndexSnapshot` and asks each source for query-specific results, all off the main actor. It publishes `SearchResults` tagged with the generation; `LauncherModel` drops stale generations, hands the rows to the reducer as `.resultsArrived`, and the list redraws.
 6. Return (or a shortcut, or a choice in the action panel) becomes `.perform`. `LauncherModel` checks the action's required permissions, shows its confirmation if it has one, records the pick in `UsageStore`, and awaits `perform(ActionContext)`.
 7. The returned `ActionOutcome` closes the launcher, keeps it open, pushes a screen, pops to root, replaces the query, or closes it and shows a HUD message.
 
@@ -94,7 +96,7 @@ flowchart LR
 
 ### 3.4 Concurrency model
 
-Both modules build in the Swift 6 language mode with strict concurrency and enable the `NonisolatedNonsendingByDefault` upcoming feature (in the package through `swiftSettings`, in the app target through `SWIFT_UPCOMING_FEATURE_NONISOLATED_NONSENDING_BY_DEFAULT = YES`). The app target also sets `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`. Core keeps the default nonisolated isolation. All three settings ship with Xcode 26 (Swift 6.2).
+Both modules build in the Swift 6 language mode with strict concurrency and enable the `NonisolatedNonsendingByDefault` upcoming feature (in the package through `swiftSettings`, in the app target through `SWIFT_UPCOMING_FEATURE_NONISOLATED_NONSENDING_BY_DEFAULT = YES`). The app target also sets `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`, so its classes and protocols are main-actor isolated without an annotation (the sketches in this document write `@MainActor` out for clarity), and the few app-target value types that must be usable from any isolation (`HotKeySlot`, `HotKeyError`, `SettingsPane`) are declared `nonisolated`. Core keeps the default nonisolated isolation. All three settings ship with Xcode 26 (Swift 6.2).
 
 Under `NonisolatedNonsendingByDefault`, a plain `async` function runs on its caller's actor, so a nonisolated `async` method called from the main actor runs on the main thread. Task-group children do not inherit the caller's actor. The rules that follow from this:
 
@@ -114,6 +116,7 @@ Each of these has exactly one owner. Features call the owner; they never reimple
 | Mechanism | Owner | Defined in |
 |---|---|---|
 | Key routing and list selection | `KeyRouter`, `LauncherState`, `LauncherModel` | §4.1.3, §4.1.4 |
+| The launcher hotkey: its preference, registration and failure state | `LauncherHotKey` | §4.1.2 |
 | Root search fan-out, cancellation, generations | `SearchSession`, `LauncherState.generation` | §4.2.5 |
 | Recording a pick for ranking | `LauncherModel` → `UsageStore` | §4.2.7 |
 | Writing the pasteboard, pasting into the previous app | `PasteService` | §4.1.7 |
@@ -141,6 +144,8 @@ The shell is the panel, the hotkey, the key router, the navigation stack, the re
 ```swift
 // App target
 final class LauncherPanel: NSPanel {
+    static let size = NSSize(width: 720, height: 474)   // fixed; the panel never resizes with its content
+    static let cornerRadius: CGFloat = 18
     init(contentRect: NSRect)   // styleMask: [.borderless, .nonactivatingPanel, .fullSizeContentView]
     override var canBecomeKey: Bool { true }    // borderless windows return false by default
     override var canBecomeMain: Bool { false }
@@ -154,6 +159,7 @@ final class LauncherPanel: NSPanel {
 | `hidesOnDeactivate`, `becomesKeyOnlyIfNeeded` | `false`, `false` | |
 | `animationBehavior` | `.none` | Latency |
 | `isReleasedWhenClosed` | `false` | Created once |
+| `isOpaque`, `backgroundColor`, `hasShadow` | `false`, `.clear`, `true` | The glass content view draws the only background |
 | `level` | `.screenSaver`, **set last** | DTS: `.floating` and `.statusBar` sit below other apps' full-screen Spaces. |
 
 `isFloatingPanel` is not set. Setting it to `true` resets the level to `.floating` (observed on macOS 27.0: the level changes from 1000 to 3), which would put the panel below full-screen apps. The configuration code sets `level` after every other property, and a DEBUG assertion checks `level == .screenSaver` afterwards.
@@ -162,16 +168,19 @@ The DTS answer requires an accessory app. `LSUIElement = YES` is already set, an
 
 View hierarchy:
 
-- `NSGlassEffectView` (macOS 26 system material) is the panel's `contentView`.
-- Inside it, `LauncherRootView` stacks `SearchBarView` (AppKit: an icon and `ShellSearchField: NSTextField`) above an `NSHostingView<LauncherBody>` (SwiftUI: the list or a custom screen, the action panel overlay, confirmations and the footer).
+- `NSGlassEffectView` (macOS 26 system material, corner radius 18) is the panel's `contentView`.
+- Inside it, `LauncherRootView` stacks `SearchBarView` (AppKit, 56 points high: an icon and `ShellSearchField: NSTextField`) above `LauncherBodyHostingView`, an `NSHostingView<LauncherBody>` (SwiftUI: the list or a custom screen, the action panel overlay, confirmations and the footer).
+- The hosting view never accepts first responder, so a click on the list cannot take the keyboard from the search field, and its `sizingOptions` are empty, so SwiftUI content never drives the window's size.
+
+The panel has one fixed size, 720 × 474 points (`LauncherPanel.size`). The list scrolls inside it; nothing the results or a screen do resizes the window.
 
 The search field is AppKit so the shell controls first responder deterministically with `makeFirstResponder`. It is the only text input in the panel: pushed screens use it as a filter or as their input line, according to their `SearchBarMode`.
 
-**Show.** `LauncherController.toggle()` hides the panel if it is visible and key. Otherwise it records `previousApp` from `NSWorkspace.shared.frontmostApplication` (unless that is OpenRay), sets the frame from `PanelPlacement` (§4.1.8), applies `.willShow` (which resets to the root frame with the previous query selected), and calls `makeKeyAndOrderFront(nil)` and `makeFirstResponder(field)`.
+**Show.** `LauncherController.toggle()` hides the panel if it is visible and key. Otherwise `show()` has `FocusRestorer` record the frontmost app as `previousApp` (§4.1.7), un-hides OpenRay without activating it if an earlier focus restore hid it, sets the frame from `PanelPlacement` (§4.1.8), applies `.willShow`, and calls `makeKeyAndOrderFront(nil)`. `.willShow` resets to the root frame and returns `.focusSearchField`, which makes the field first responder with the previous query selected (§4.1.4), before the panel is ordered front.
 
-**Hide.** Triggers are Esc at the bottom of the Esc ladder, `windowDidResignKey`, the hotkey, and the outcomes `.closeLauncher` and `.showHUD`. The panel is ordered out and `FocusRestorer.restoreIfNeeded()` runs. Hiding does not cancel an action that is still running.
+**Hide.** Triggers are Esc at the bottom of the Esc ladder, `windowDidResignKey`, the hotkey, and the outcomes `.closeLauncher` and `.showHUD`. The panel is ordered out and then `FocusRestorer.restoreIfNeeded()` runs. The order matters: the restorer acts only when `NSApp.isActive`, and while the panel is key that can be true although the app behind it is still frontmost (§8, item 4). Ordering the key panel out makes it resign key, which calls `hide()` again; the second call returns because the panel is no longer visible. Hiding does not cancel an action that is still running, and it leaves `LauncherState` as it is; the next `.willShow` resets it.
 
-**Edit menu.** `NSTextField` performs copy, paste, cut, undo and select-all through Edit-menu key equivalents, not through `keyDown`. A menu-bar-only app may have no Edit menu, which would make ⌘V do nothing in the search field and in the settings window. In M1 the app delegate installs a hidden `NSApp.mainMenu` containing an Edit menu (Undo, Redo, Cut, Copy, Paste, Select All with the standard selectors and key equivalents). UNVERIFIED: that the SwiftUI `App` lifecycle leaves a hand-installed main menu in place, and that its key equivalents fire while the panel is key but OpenRay is not the active app. The M1 checklist tests ⌘C, ⌘V and ⌘Z in the panel and in Settings. The fallback is for the key monitor to send the standard selectors with `NSApp.sendAction(_:to:from:)`.
+**Main menu.** `NSTextField` performs copy, paste, cut, undo and select-all through Edit-menu key equivalents, not through `keyDown`. A menu-bar-only app may have no Edit menu, which would make ⌘V do nothing in the search field and in the settings window. In `applicationDidFinishLaunching` the app delegate installs a hidden `NSApp.mainMenu` (`MainMenu.make()`) with three items. The first is an empty application menu, because AppKit treats the first item of the main menu as the application menu whatever it contains. The second is File with Close Window (⌘W, `performClose:`), so the settings window closes from the keyboard. The third is Edit (Undo, Redo, Cut, Copy, Paste, Select All with the standard selectors and key equivalents). The search field's cell sets `allowsUndo`, without which ⌘Z reaches the field and does nothing. UNVERIFIED: that the SwiftUI `App` lifecycle leaves a hand-installed main menu in place, and that its key equivalents fire while the panel is key but OpenRay is not the active app. The M1 checklist tests ⌘C, ⌘V and ⌘Z in the panel and in Settings. The fallback is for the key monitor to send the standard selectors with `NSApp.sendAction(_:to:from:)`.
 
 #### 4.1.2 Global hotkey
 
@@ -181,57 +190,82 @@ public struct HotKey: Codable, Hashable, Sendable {
     public var keyCode: UInt32                 // virtual key code (kVK_*), layout-independent
     public var modifiers: Modifiers
     public struct Modifiers: OptionSet, Codable, Hashable, Sendable {
-        public static let command, option, control, shift: Modifiers
+        public let rawValue: UInt8             // stored with the preference: the bit assignments never change
+        public static let command, option, control, shift: Modifiers   // 1<<0, 1<<1, 1<<2, 1<<3
+        public init(eventModifierFlags: UInt)  // from NSEvent.ModifierFlags.rawValue; Caps Lock, Fn and the numeric-pad flag are dropped
     }
+    public enum Validation: Sendable, Equatable { case ok, needsModifier, optionShiftOnly }   // optionShiftOnly is a warning
     public var carbonModifiers: UInt32 { get } // cmdKey 1<<8, shiftKey 1<<9, optionKey 1<<11, controlKey 1<<12 (Events.h)
-    public func validate() -> Validation       // .ok, .needsModifier, .optionShiftOnly (warning)
+    public func validate() -> Validation
     public static let launcherDefault = HotKey(keyCode: 0x31 /* kVK_Space */, modifiers: [.option])
 }
 
 // App target
-enum HotKeySlot: UInt32 { case launcher = 1 }
-enum HotKeyError: Error { case inUseByAnotherApp, rejected(OSStatus) }
+enum HotKeySlot: UInt32 { case launcher = 1 }  // the raw value is the Carbon hotkey ID
+enum HotKeyError: Error, Equatable { case inUseByAnotherApp, rejected(OSStatus) }
 
 @MainActor protocol HotKeyRegistering {        // fakes implement this in tests
+    /// Gives the slot this hotkey, replacing the one it had. On failure the slot keeps its previous hotkey.
     func register(_ key: HotKey, for slot: HotKeySlot) -> Result<Void, HotKeyError>
     func unregister(_ slot: HotKeySlot)
-    func suspendAll()
+    func suspendAll()                          // releases every hotkey until resumeAll(), for the recorder
     func resumeAll()
 }
 @MainActor final class HotKeyCenter: HotKeyRegistering {
     var onPress: (@MainActor (HotKeySlot, _ eventTime: TimeInterval) -> Void)?
 }
+
+@MainActor @Observable final class LauncherHotKey {
+    struct Failure: Equatable { let hotKey: HotKey; let error: HotKeyError }   // the chord that could not be registered
+    static let fallback = HotKey(keyCode: 0x31 /* kVK_Space */, modifiers: [.control, .option])
+    init(registrar: any HotKeyRegistering, preferences: Preferences)
+    private(set) var isActive: Bool            // a hotkey is registered
+    private(set) var failure: Failure?         // the last failed registration; cleared by the next success
+    private(set) var usesFallback: Bool
+    var hotKey: HotKey { get }                 // the stored hotkey, or the fallback standing in for it
+    func registerAtLaunch()
+    func record(_ key: HotKey)                 // registers, then stores; on failure the previous hotkey stays
+    func beginRecording()                      // suspendAll()
+    func endRecording()                        // resumeAll()
+}
 ```
 
-**Registration.** One `InstallEventHandler` on `GetApplicationEventTarget()` for `kEventClassKeyboard`/`kEventHotKeyPressed`, then `RegisterEventHotKey(code, carbonModifiers, EventHotKeyID(signature:id:), target, kEventHotKeyExclusive, &ref)`. These functions are present and not deprecated in the macOS 27 SDK, and none of them causes a permission prompt.
+`HotKeyCenter` only talks to Carbon. `LauncherHotKey` sits between it, `Preferences` and the UI: the recorder, the General pane and the menu-bar menu read and change the hotkey through it, never through the preference or the registrar directly.
 
-**Exclusivity.** With `kEventHotKeyExclusive`, OpenRay's registration stops other apps' non-exclusive registrations of the same chord from receiving events while OpenRay holds it, so only OpenRay fires. Registration fails with `eventHotKeyExistsErr` (-9878) if another app already holds the chord. `CarbonEvents.h` is inconsistent about whether a non-exclusive holder causes that error (the `HotKeyOptions` documentation says yes, the `RegisterEventHotKey` result documentation implies only exclusive holders do); M1 tests both cases (§8, item 2). -9878 maps to `.inUseByAnotherApp`, shown as "This shortcut is in use by another app".
+**Registration.** One `InstallEventHandler` on `GetApplicationEventTarget()` for `kEventClassKeyboard`/`kEventHotKeyPressed`, then `RegisterEventHotKey(code, carbonModifiers, EventHotKeyID(signature:id:), target, kEventHotKeyExclusive, &ref)`. These functions are present and not deprecated in the macOS 27 SDK, and none of them causes a permission prompt. Registering the chord a slot already holds returns success without calling Carbon, because registering a chord this app holds exclusively would fail. When a slot changes chord, the new chord is registered before the old one is unregistered, so a failure changes nothing and the previous hotkey keeps working.
+
+**Exclusivity.** With `kEventHotKeyExclusive`, OpenRay's registration stops other apps' non-exclusive registrations of the same chord from receiving events while OpenRay holds it, so only OpenRay fires. Registration fails with `eventHotKeyExistsErr` (-9878) if another app already holds the chord. `CarbonEvents.h` is inconsistent about whether a non-exclusive holder causes that error (the `HotKeyOptions` documentation says yes, the `RegisterEventHotKey` result documentation implies only exclusive holders do); M1 tests both cases (§8, item 2). -9878 maps to `.inUseByAnotherApp`, shown as "⌥Space is in use by another app."; any other status maps to `.rejected(status)`, shown as "macOS could not register ⌥Space (error -9868)." The message names the chord that failed, because after a failed change the recorder shows the previous hotkey, which still works.
 
 **Threading.** Carbon dispatches application-target events on the main run loop. The handler is a non-capturing C function that recovers `HotKeyCenter` from `userData` and calls `MainActor.assumeIsolated`, which traps if the assumption is ever wrong. `HotKeyCenter` must be `@MainActor` for this pattern to compile in Swift 6; with a non-isolated class, generating SIL reports "sending 'me' risks causing data races". `GetEventTime(event)` gives the trigger timestamp for latency measurement.
 
-**Option-only chords.** macOS 15.0 made hotkeys whose only modifiers are Option or Option+Shift fail (forum reports show error -9868). An Apple engineer stated this was addressed in macOS 15.2 beta 2; a later user report claims an intermittent regression. UNVERIFIED on macOS 26 and 27: test registration of ⌥Space on both. `register` checks the status every time, and the recorder warns on Option-only chords. If ⌥Space fails at first launch, OpenRay registers ⌃⌥Space instead and says so in Settings.
+**Option-only chords.** macOS 15.0 made hotkeys whose only modifiers are Option or Option+Shift fail (forum reports show error -9868). An Apple engineer stated this was addressed in macOS 15.2 beta 2; a later user report claims an intermittent regression. UNVERIFIED on macOS 26 and 27: test registration of ⌥Space on both. `register` checks the status every time, and the General pane warns while the hotkey is an Option-only chord.
 
-**Failure.** If the hotkey cannot be registered, OpenRay opens Settings at the General pane with the error shown next to the recorder, and the menu-bar menu's first item reads "Hotkey inactive — open Settings". It never posts a user notification, which would need its own authorization prompt.
+**Fallback.** `LauncherHotKey.registerAtLaunch()` registers the stored hotkey. If that is the default, ⌥Space, and it cannot be registered, OpenRay registers ⌃⌥Space in its place for this session only. The fallback is never written to `launcher.hotKey`: the preference keeps the default, so every launch tries ⌥Space again. While `usesFallback` is true, the recorder shows ⌃⌥Space and the General pane says that ⌥Space could not be registered and that OpenRay will try again the next time it starts. Recording any hotkey ends the fallback. A hotkey the user chose has no fallback, and if the fallback is refused too, the failure reported is the default's, since that is the chord the recorder shows.
 
-**Recorder.** `HotKeyRecorderView` is an `NSView` that becomes first responder and reads `keyDown` and `flagsChanged`. While recording it calls `suspendAll()`, otherwise Carbon would consume the current hotkey before the view saw it. It requires at least one of ⌘, ⌃ or ⌥; Esc cancels and Delete clears. The display string ("⌥Space") comes from `UCKeyTranslate` with the current input source and is recomputed when the input source changes; the binding stays on the physical key code. The hotkey is stored as the preference `launcher.hotKey` (§4.3.4).
+**Failure.** If no hotkey could be registered at launch (`isActive` is false), OpenRay opens Settings at the General pane with the error shown under the recorder, and while that lasts the menu-bar menu's first item reads "Hotkey inactive — open Settings". A change in the recorder that cannot be registered leaves both the registration and the preference on the previous hotkey and shows the same error, naming the chord that was refused; the next successful registration clears it. OpenRay never posts a user notification, which would need its own authorization prompt.
+
+**Recorder.** `HotKeyRecorderView` is an `NSView` that becomes first responder and reads `keyDown` and `flagsChanged`. A click, Space or Return starts recording. While recording it calls `suspendAll()` (through `LauncherHotKey.beginRecording()`), otherwise Carbon would consume the current hotkey before the view saw it, and it overrides `performKeyEquivalent` to record ⌘ chords before the main menu sees them, otherwise recording ⌘W would close the window. It requires at least one of ⌘, ⌃ or ⌥ and beeps at anything else. Esc cancels, as does losing first responder or the window resigning key. Delete, or Forward Delete, restores the default hotkey, ⌥Space, through the same path as any other chord; the recorder has no way to leave the launcher without a hotkey. Recording ends, which resumes the current hotkey, before the new chord is registered, so that the new one replaces it as described under Registration. The display string ("⌥Space") comes from `HotKeyFormatter`: fixed names for keys that type nothing visible (Space, ↩, the arrows, F1 to F20) and otherwise `UCKeyTranslate` with the current keyboard layout, in upper case. It is recomputed when the input source changes; the binding stays on the physical key code. The hotkey is stored as the preference `launcher.hotKey` (§4.3.4).
 
 #### 4.1.3 Key routing
 
-There is one interception point: an `NSEvent.addLocalMonitorForEvents(matching: .keyDown)` monitor installed while the panel is key. It ignores events for other windows, and passes everything through untouched while the field editor `hasMarkedText()`, so input-method composition keeps Return, the arrows and Esc. The monitor runs before key-equivalent dispatch, so ⌘ chords and plain keys take the same path.
+There is one interception point: an `NSEvent.addLocalMonitorForEvents(matching: .keyDown)` monitor (`LauncherKeyMonitor`), installed when the panel becomes key and removed when it resigns key. It ignores events for other windows, turns every other key press into a `KeyChord` and a `KeyRouter.Context`, and asks the router. The monitor decides nothing itself: whether the field editor `hasMarkedText()` is one more field of the context, and the router returns `nil` for every chord while it is true, so input-method composition keeps Return, the arrows and Esc. The monitor runs before key-equivalent dispatch, so ⌘ chords and plain keys take the same path.
 
 ```swift
 // OpenRayCore
 public struct KeyChord: Hashable, Codable, Sendable {
     public var keyCode: UInt16
-    public var modifiers: HotKey.Modifiers
+    public var modifiers: HotKey.Modifiers     // ⌘ ⌥ ⌃ ⇧ only (HotKey.Modifiers(eventModifierFlags:))
     public var characters: String?             // charactersIgnoringModifiers
 }
+public enum VirtualKey { /* the kVK_* codes the router needs, copied from Events.h */ }
 public struct KeyRouter: Sendable {
     public struct Context: Sendable {
         public var actionPanelOpen: Bool
-        public var queryIsEmpty: Bool
+        public var queryIsEmpty: Bool          // the search field is empty (LauncherState.searchFieldText)
         public var depth: Int                  // 0 = root
         public var selectedItemShortcuts: [KeyChord: ActionID]
+        public var hasMarkedText: Bool         // an input method is composing in the search field
+        public init(state: LauncherState, selectedItemShortcuts: [KeyChord: ActionID] = [:], hasMarkedText: Bool = false)
     }
     public func intent(for chord: KeyChord, in context: Context) -> LauncherIntent?   // nil: let AppKit handle it
 }
@@ -241,18 +275,26 @@ Routing, in priority order:
 
 | Chord | Intent |
 |---|---|
+| Any chord while `hasMarkedText` | `nil` |
 | Esc | `.escape` (see the Esc ladder in §4.1.4) |
 | ↑ / ↓, ⌃P / ⌃N | `.moveSelection(-1)` / `.moveSelection(1)` |
-| Return | `.performPrimary` |
+| Return, keypad Enter | `.performPrimary` |
 | Tab | `.tabComplete` |
+| Delete with an empty field at depth > 0, while the action panel is closed | `.back` |
 | ⌘K | `.toggleActionPanel` |
-| ⌘1 to ⌘9 | `.activateIndex(n)`, matched by key code so AZERTY works without Shift |
-| ⌘[, or Delete with an empty query at depth > 0 | `.back` |
+| ⌘1 to ⌘9 | `.activateIndex(n)`, matched by the key code of the digit row so AZERTY works without Shift |
+| ⌘[ | `.back` |
 | ⌘, | `.openSettings` |
-| A chord in `selectedItemShortcuts` | `.performAction(id)` |
+| A chord that triggers a shortcut in `selectedItemShortcuts` | `.performAction(id)` |
 | Anything else, including ⌘A, ⌘C, ⌘V, ⌘X, ⌘Z and typing | `nil`: falls through to the field editor |
 
-Letter chords match on `characters`, falling back to the key code when that value is not ASCII (for example on a Cyrillic layout). `CommandRegistry` drops, and logs, any action shortcut that collides with ⌘A, ⌘C, ⌘V, ⌘X, ⌘Z, ⌘⇧Z or a chord in this table.
+**Modifiers are exact.** A fixed chord matches only with exactly the modifiers the table shows, out of ⌘, ⌥, ⌃ and ⇧: Esc, the arrows, Return, Enter, Tab and Delete with none, ⌃P and ⌃N with Control alone, the ⌘ chords with Command alone. Caps Lock, Fn and the numeric-pad flag (which AppKit sets on arrow keys) never count. So ⇧Tab, ⌥Return and ⌘⇧K are not fixed chords: they are free for item shortcuts and otherwise fall through. While the action panel is open the field holds the panel's filter, so Delete stays an editing key there.
+
+**Layouts.** The chords named by a letter or a punctuation mark (K, P, N, `[` and `,`) match on `characters`, lower-cased, when that value is ASCII, so on Dvorak ⌘K is the key that types K. When it is not ASCII (for example on a Cyrillic layout) they match on the key code of that key's position on an ANSI keyboard.
+
+**Item shortcuts** are looked up only after every fixed chord has declined, so an item can never take over Esc, Return or ⌘K. A shortcut is triggered when the modifiers are equal and the key matches: by `characters`, compared without case, when both the shortcut and the pressed chord have ASCII characters, and by key code otherwise. If one press triggers two of the item's shortcuts, the action with the smaller `ActionID` wins, which keeps routing deterministic.
+
+`CommandRegistry` drops, and logs, any action shortcut that collides with ⌘A, ⌘C, ⌘V, ⌘X, ⌘Z, ⌘⇧Z or a chord in this table.
 
 #### 4.1.4 Navigation state
 
@@ -261,31 +303,50 @@ The launcher is a stack of frames. The root frame is search; every other frame i
 ```swift
 // OpenRayCore
 public struct LauncherState: Equatable, Sendable {
+    public struct Row: Equatable, Sendable, Identifiable {   // what navigation needs to know about a displayed row
+        public var id: ItemID
+        public var primaryAction: ActionID?    // what Return runs: the item's actions[0]
+        public var tabTarget: ScreenRequest?   // what Tab opens
+        public init(id: ItemID, primaryAction: ActionID? = nil, tabTarget: ScreenRequest? = nil)
+        public init(_ item: SearchItem)
+    }
     public struct Frame: Equatable, Sendable {
         public var screen: ScreenRequest?      // nil = root search
         public var query: String
-        public var rows: [ItemID]              // displayed order, for selection
+        public var rows: [Row]                 // displayed order
         public var selection: ItemID?
-        public var actionInFlight: Bool
+        public var actionInFlight: Bool { get }        // computed: the frame waits for the outcome of an action
+        public var selectedIndex: Int? { get }
+        public var selectedRow: Row? { get }
     }
-    public struct ActionPanelState: Equatable, Sendable { public var filter: String; public var selection: ActionID? }
+    public struct ActionPanelState: Equatable, Sendable {
+        public var filter: String              // what the search field holds while the panel is open
+        public var rows: [ActionID]            // the listed actions after filtering, in displayed order
+        public var selection: ActionID?
+    }
     public private(set) var stack: [Frame]             // never empty; stack[0] is root
     public private(set) var actionPanel: ActionPanelState?
-    public private(set) var generation: UInt64         // bumped on every root query change
+    public private(set) var generation: UInt64         // bumped on every root query change and on every show
+    public private(set) var actionSerial: UInt64       // bumped by .actionStarted; names that action in .actionFinished
     public var tabFallback: ScreenRequest?             // set by the app: Quick AI's chat screen, or nil
+    public var top: Frame { get }
+    public var depth: Int { get }                      // 0 = root
+    public var searchFieldText: String { get }         // the action panel's filter while it is open, else the top frame's query
     public mutating func apply(_ intent: LauncherIntent) -> [LauncherEffect]
 }
 
 public enum LauncherIntent: Sendable, Equatable {
     case willShow
-    case queryChanged(String)
-    case moveSelection(Int), activateIndex(Int)
+    case queryChanged(String)                          // the search field's text changed
+    case moveSelection(Int), activateIndex(Int)        // activateIndex is 1-based
     case performPrimary, performAction(ActionID)
     case tabComplete, toggleActionPanel, back, escape, openSettings
     case push(ScreenRequest)
-    case resultsArrived(rows: [ItemID], generation: UInt64)
-    case screenRowsChanged([ItemID])
-    case actionStarted, actionFinished(ActionOutcome)
+    case resultsArrived(rows: [LauncherState.Row], generation: UInt64)
+    case screenRowsChanged([LauncherState.Row])
+    case actionPanelRowsChanged([ActionID])
+    case actionStarted
+    case actionFinished(ActionOutcome, serial: UInt64)
 }
 
 public enum LauncherEffect: Sendable, Equatable {
@@ -293,34 +354,48 @@ public enum LauncherEffect: Sendable, Equatable {
     case forwardQuery(String)                          // to the top screen's ScreenContext
     case perform(ActionID, on: ItemID?)                // nil item: a screen-level action
     case cancelAction
-    case showScreen(ScreenRequest), popScreen
+    case showScreen(ScreenRequest)
+    case popScreen                                     // once per frame removed
     case hide
-    case focusSearchField, scrollTo(ItemID), openSettings
+    case focusSearchField                              // first responder, with its text selected
+    case scrollTo(ItemID), openSettings
 }
 ```
 
+The reducer never sees a `SearchItem`, a result section or an action descriptor, so everything it has to decide from travels in the intents. A `Row` carries the item's primary action and Tab target, which is how `.performPrimary`, `.activateIndex` and `.tabComplete` are answered without asking the app. The action panel's rows are the `ActionID`s the app lists after filtering. An action is named by the value of `actionSerial` after its `.actionStarted`, so that an outcome arriving late is never taken for the outcome of another action.
+
 Rules:
 
-- Each frame keeps its own query and selection, so going back restores both.
-- Selection is tracked by `ItemID`, not by index, so rows that arrive later never move the highlight.
-- `.resultsArrived` with a generation other than the current one is dropped. `LauncherState.generation` is the only generation counter in the app.
+- Each frame keeps its own query and selection, so going back restores both. A pushed frame starts with an empty query and no rows. Going back does not search again.
+- Selection is tracked by `ItemID`, not by index, so rows that arrive later for the same query never move the highlight.
+- **A new query selects the first row.** When a frame's query changes (and on every show), the next rows to arrive for that frame select their first row, even if the previously selected item is still among them. Until they arrive the selection stays where it was.
+- **A vanished row keeps its position.** When rows arrive for an unchanged query and the selected item is no longer among them, the selection moves to the row now at the same position, or to the last row if the list became shorter. Empty rows clear it.
+- **No wrap-around.** `.moveSelection` stops at the first and the last row. With nothing selected, a move down selects the first row and a move up the last.
+- `.resultsArrived` with a generation other than the current one is dropped. `LauncherState.generation` is the only generation counter in the app. Root results that arrive while a screen is on top update the root frame without scrolling; `.screenRowsChanged` is ignored at the root.
+- `.activateIndex(n)` selects the n-th row of the top frame and performs its primary action; a position outside the rows does nothing.
 - **Esc ladder:** cancel the frame's in-flight action; else close the action panel; else pop the frame; else clear the query; else hide.
+- **Back** (⌘[, Delete) closes the action panel if it is open. Otherwise it pops one frame, which cancels an action running in that frame, and does nothing at the root.
 - **Tab:** if the selected item has a `tabTarget`, push it. Otherwise, at the root with a non-empty query, push `tabFallback` with the query as its argument. Otherwise do nothing.
-- **Re-show** always resets to the root frame and selects the previous query text, so typing replaces it.
+- **Action panel.** `.toggleActionPanel` opens the panel with an empty filter and no rows; the app then supplies the rows with `.actionPanelRowsChanged`, and again whenever the filter changes. At the root the panel opens only with an item selected; a screen can have actions of its own, so there it opens without one. While it is open, `.queryChanged` edits the filter and leaves the frame's query alone, `.moveSelection` moves within the panel, and `.performPrimary` performs the selected action on the frame's selected item. The rows for a new filter select their first action; rows that merely update keep the selected action while it is still listed. `.activateIndex` and `.tabComplete` are ignored. A second `.toggleActionPanel`, Esc, back, performing an action, and pushing or popping a screen close it.
+- **While an action is in flight** in the top frame, `.performPrimary`, `.performAction`, `.activateIndex`, `.tabComplete` and opening the action panel are ignored: one action runs at a time per frame. Typing and moving the selection still work. Esc cancels the action (`.cancelAction`), and so does popping its frame.
+- **Outcomes.** `.actionStarted` marks the top frame as waiting for the action that `actionSerial` now names. `.actionFinished(outcome, serial:)` is applied only if a frame still waits for that serial. It is dropped after the action was cancelled, after its frame was popped, and after the launcher was shown again. `.closeLauncher` and `.showHUD` return `.hide`; `.keepOpen` only ends the wait; `.popToRoot` pops every screen; `.push` pushes; `.replaceQuery` changes the query as typing would, with a new search at the root and `.forwardQuery` on a screen.
+- **Show.** `.willShow` pops every screen, closes the action panel and stops waiting for any action. It does not return `.cancelAction`: an action still running from before keeps running (§4.1.1), but its outcome no longer navigates. The root keeps its query and, of the rows it still has, selects the first. The generation is bumped and `.search` is returned for that query, so results from before the hide are stale and the fresh ones select their first row. `.focusSearchField` follows, which selects the query text so typing replaces it. Hiding changes nothing in the state.
 
-`LauncherModel` (app target) holds the state, the current `SearchResults` and the screens on the stack. Before applying an intent, it offers it to the top screen if that screen is a custom screen, the action panel is closed and no action is in flight (§4.1.5). It derives `selectedItemShortcuts` from the selected item's actions.
+`LauncherModel` (app target) holds the state, the current `SearchResults` and the screens on the stack. Before applying an intent, it offers it to the top screen if that screen is a custom screen, the action panel is closed and no action is in flight (§4.1.5). It derives `selectedItemShortcuts` from the selected item's actions, and the rows of `.resultsArrived` from the results with `LauncherState.Row(item)`. It reaches the window through the `LauncherShell` protocol (hide, focus the field, set the field's text, open Settings), which `LauncherController` implements.
+
+No effect carries the search field's text. The reducer changes it in several ways (Esc clears the query, leaving a screen restores the query below, the action panel swaps its filter in and out, `.replaceQuery`), so after every intent the model compares `searchFieldText` with its value before and writes the field only if the reducer changed it. It must not write otherwise: text an input method is still composing is in the field but not yet in the state, and writing would discard it. The write comes before the effects run, so that `.focusSearchField` selects the new text.
 
 **Running an action.** For `.perform`, `LauncherModel` finds the action, then:
 
 1. If the action has a `confirmation`, shows it in the panel (§4.1.6) and stops if the user declines.
 2. Checks `requiredPermissions` with `PermissionCenter` (§5.1). If one is missing it requests it or pushes the permission screen, as §5.1 describes, instead of running the action.
 3. If the item is in the root frame or a list screen, records the pick with `UsageStore.record(pick:query:at:)` using that frame's query.
-4. Applies `.actionStarted`, runs `perform` in a stored `Task`, and applies `.actionFinished(outcome)`.
+4. Applies `.actionStarted` and notes `actionSerial`, runs `perform` in a stored `Task`, and applies `.actionFinished(outcome, serial:)` with that serial.
 5. If `perform` throws, shows the error's `localizedDescription` in the HUD with the launcher still open, and logs it.
 
 #### 4.1.5 Results list and screens
 
-The list is SwiftUI: a `ScrollView` with a `LazyVStack` of non-focusable rows, selection driven by the model, and `ScrollViewReader.scrollTo` keeping the selected row visible. Rows render `ScoredItem` data (§4.2.2), never views supplied by features, so the list can be replaced with an `NSTableView` inside `NSViewRepresentable` without touching any feature if it misses the latency budget. SwiftUI `List` is not used because its own selection and focus handling fights the shell's routing. UNVERIFIED: that `LazyVStack` meets the 16 ms budget with 200 rows replaced on every keystroke; the M1 benchmark decides.
+The list is SwiftUI: a `ScrollView` with a `LazyVStack` of non-focusable rows, selection driven by the model, and `ScrollViewReader.scrollTo` keeping the selected row visible. Each `.scrollTo` effect becomes a scroll request on the model, which the list observes; requests are numbered so that two for the same row are distinct. A row view is `Equatable` and holds only the values it draws, so SwiftUI skips the rows that did not change when the selection moves or new results arrive. Rows render `ScoredItem` data (§4.2.2), never views supplied by features, so the list can be replaced with an `NSTableView` inside `NSViewRepresentable` without touching any feature if it misses the latency budget. SwiftUI `List` is not used because its own selection and focus handling fights the shell's routing. UNVERIFIED: that `LazyVStack` meets the 16 ms budget with 200 rows replaced on every keystroke; the M1 benchmark decides.
 
 A pushed screen is one of two kinds (`ScreenSpec`, §4.2.3):
 
@@ -329,7 +404,7 @@ A pushed screen is one of two kinds (`ScreenSpec`, §4.2.3):
 
 #### 4.1.6 Action panel, confirmations and HUD
 
-**Action panel (⌘K).** An overlay drawn inside the panel, never an `NSMenu`, because menus and other windows may appear below a screen-saver-level panel. It lists the selected item's actions, or the screen's actions for a custom screen, with their shortcuts. While it is open, the search field's text is swapped for the panel's own filter text and swapped back when it closes.
+**Action panel (⌘K).** An overlay drawn inside the panel, never an `NSMenu`, because menus and other windows may appear below a screen-saver-level panel. It lists the selected item's actions, or the screen's actions for a custom screen, with their shortcuts. While it is open, the search field's text is swapped for the panel's own filter text and swapped back when it closes. The shell matches the actions against the filter and reports the ones it lists with `.actionPanelRowsChanged`; the reducer owns the selection among them (§4.1.4).
 
 **Confirmations.** An action with a `confirmation` shows an in-panel view (title, message, a destructive button and Cancel; Return confirms, Esc cancels). OpenRay never uses `NSAlert` from the launcher: an alert would appear behind the panel, and when it became key the panel would resign key and hide.
 
@@ -341,7 +416,14 @@ A pushed screen is one of two kinds (`ScreenSpec`, §4.2.3):
 
 Because the panel is non-activating, the frontmost app normally stays active and nothing needs restoring.
 
-**`FocusRestorer`** (app target) keeps the `NSRunningApplication` behind `previousApp`. `restoreIfNeeded()` acts only if `NSApp.isActive` (for example after a command opened one of OpenRay's windows): it calls `NSApp.yieldActivation(to:)` and then `activate(from: .current, options: [])` on the previous app (macOS 14+). `restore() async -> Bool` additionally waits up to 300 ms for `NSWorkspace.didActivateApplicationNotification` naming that app. The header warns that activation "is not guaranteed". UNVERIFIED: that this succeeds from an accessory app; the fallback is `NSApp.hide(nil)`. If the previous app quit, `restore()` returns `false`.
+**`FocusRestorer`** (app target) keeps the `NSRunningApplication` behind `previousApp`. `AppDelegate` creates one and gives it to both `LauncherController` and `SettingsWindowController`, because OpenRay becomes the active app only through one of its own windows, in practice Settings.
+
+- `recordFrontmostApp()` is called before the launcher is shown and before Settings activates OpenRay. It stores `NSWorkspace.shared.frontmostApplication`, unless that is OpenRay itself: then the app recorded earlier is kept, so a launcher opened over Settings, or Settings opened from the launcher, still leads back to the app the user came from.
+- `restoreIfNeeded()` is called after the panel has been ordered out (§4.1.1) and one run-loop turn after the settings window closes, when the window has left the screen. It acts only if `NSApp.isActive` and none of OpenRay's windows that can become main is still visible. That is the one state that needs repair: OpenRay active with no window to take the keyboard, so typing would go nowhere. While Settings is visible it keeps the keyboard and nothing is restored.
+- To restore, it calls `NSApp.yieldActivation(to:)` and then `activate(from: .current, options: [])` on the previous app (macOS 14+). If there is no previous app, if it has quit, or if `activate` returns `false`, it calls `NSApp.hide(nil)` instead, which lets the system choose the next app. A hidden app keeps its windows off screen, so `LauncherController.show()` calls `NSApp.unhideWithoutActivation()` first when `NSApp.isHidden`.
+- ⌘, in the launcher shows Settings first and hides the panel second, so that the hide finds a visible window and does not hand the keyboard to the previous app. Settings opened any other way makes the panel resign key, which hides it the same way.
+
+`restore() async -> Bool` (M4, for paste) additionally waits up to 300 ms for `NSWorkspace.didActivateApplicationNotification` naming that app. The header warns that activation "is not guaranteed". UNVERIFIED: that `yieldActivation` and `activate(from:)` succeed from an accessory app, and that `NSApp.hide(nil)` then leaves the keyboard with a sensible app (§8, item 4). If the previous app quit, `restore()` returns `false`.
 
 **`PasteService`** (app target, `@MainActor`) is the only code that writes the general pasteboard or posts synthetic key events. Features reach it through `ActionContext.copy(_:)` and `ActionContext.paste(_:)`; the Lock Screen command uses its `post(_ chord: KeyChord)` (§4.2.10).
 
@@ -382,7 +464,11 @@ public enum PanelPlacement {
 }
 ```
 
-The panel opens on the display containing `NSEvent.mouseLocation` (falling back to the first display), centred horizontally, with its top edge 22 % below the top of that display's `visibleFrame`. Results grow downward only. The app target snapshots `NSScreen.screens` into `[DisplayGeometry]` on the main actor and refreshes it on `NSApplication.didChangeScreenParametersNotification`, which also re-places a visible panel. Window management uses the same type (§4.7).
+The panel opens on the display whose `frame` contains `NSEvent.mouseLocation`, centred horizontally in that display's `visibleFrame`, with its top edge 22 % of the `visibleFrame`'s height below its top. The top edge is fixed and does not depend on the panel's height. The left and top edges are rounded to whole points; the size is passed through, and the app always passes `LauncherPanel.size` (§4.1.1), so the panel neither moves nor grows as results arrive.
+
+Finding the display has two edge cases. `CGRect.contains` includes a rectangle's minimum edges and excludes its maximum edges, so a mouse on the seam between two displays belongs to the display that starts there, whatever the order of the list. For the same reason a mouse resting exactly on a display's top edge can be in no display at all, so a second pass accepts the first display whose frame grown by one point contains it. A mouse that is still on no display gets the first display in the list, and an empty list gives a frame of the requested size at the origin.
+
+The app target snapshots `NSScreen.screens` into `[DisplayGeometry]` on the main actor, with `NSScreenNumber` as the `id`, and refreshes it on `NSApplication.didChangeScreenParametersNotification`, which also re-places a visible panel. Window management uses the same type (§4.7).
 
 #### 4.1.9 Latency budget
 
@@ -392,6 +478,8 @@ The panel opens on the display containing `NSEvent.mouseLocation` (falling back 
 | First show after launch | 200 ms | same |
 | Keystroke → root results drawn (index match and `.inline` sources) | 16 ms | `NSEvent.timestamp` → display-link tick after the state commit |
 | Keystroke → first batch from a `.slow` source | 100 ms; typing never blocks | same |
+
+`FrameLatencyProbe` (app target) takes these measurements. A signpost interval cannot begin in the past, so each interval begins when the event is handled (the hotkey callback, the field's text-change callback) and ends at the first display-link tick after the panel was ordered front or the results were committed. The time the budget is about, from the event's own timestamp to that tick, includes the wait before the handler ran; the probe computes it and writes it into the interval's end message ("12.3 ms since the event"). Read the budget from that message, not from the interval's length. A measurement that never reaches a frame, because the panel was hidden or the next keystroke replaced it, ends with the message "abandoned".
 
 The panel and hosting view are built and laid out at launch to warm the first show. UNVERIFIED: that laying out without ordering the panel front warms SwiftUI enough; measure it. Signpost intervals are listed in §5.3.
 
@@ -403,8 +491,8 @@ The panel and hosting view are built and laid out at launch to warm the first sh
 | Secure Event Input is on (password field) | UNVERIFIED whether Carbon hotkeys still fire; test on macOS 26 and 27 with `IsSecureEventInputEnabled()` logged |
 | Input-method candidate windows under a screen-saver-level panel | UNVERIFIED whether they appear; test Japanese and Pinyin input |
 | Hotkey during Mission Control or while another app's menu is open | UNVERIFIED; test |
-| `previousApp` quit while the panel was open | Restore is skipped; paste returns `.copiedOnly(.targetChanged)` |
-| Display removed while the panel is visible | Re-placed on the first display |
+| `previousApp` quit while the panel was open | Nothing to restore unless OpenRay is the active app, and then `NSApp.hide(nil)` (§4.1.7); paste returns `.copiedOnly(.targetChanged)` |
+| Display removed while the panel is visible | Re-placed on the display under the mouse, or the first display (§4.1.8) |
 | Slow action | Footer spinner; the panel stays; Esc cancels the task |
 
 ### 4.2 Command model, search and ranking
@@ -415,13 +503,22 @@ One interface carries every feature. A **source** (`SearchSource`) yields **item
 
 ```swift
 // OpenRayCore
-public struct ItemID: Hashable, Sendable, Codable { public let rawValue: String }     // "<namespace>:<local>"
-public struct ActionID: Hashable, Sendable, Codable { public let rawValue: String }
-public struct FeatureID: Hashable, Sendable, Codable { public let rawValue: String }
-public struct SourceID: Hashable, Sendable { public let rawValue: String }
+public struct ItemID: RawRepresentable, Hashable, Sendable, Codable {     // "<namespace>:<local>"
+    public let rawValue: String
+    public init(rawValue: String)
+    public enum Namespace: String, Sendable, CaseIterable { case app, system, command, quicklink, script, file, clip, snippet }
+    public init(_ namespace: Namespace, _ local: String)
+    public var namespace: Namespace? { get }   // nil for an unknown namespace
+    public var local: String { get }           // everything after the first colon; may itself contain colons
+}
+public struct ActionID: RawRepresentable, Hashable, Sendable, Codable { public let rawValue: String }
+public struct FeatureID: RawRepresentable, Hashable, Sendable, Codable { public let rawValue: String }
+public struct SourceID: RawRepresentable, Hashable, Sendable { public let rawValue: String }
 ```
 
-`ItemID`s are stored in the usage, alias and override tables, so their format is fixed:
+The identifier types are `RawRepresentable`, so each one encodes as a plain string, not as an object with a `rawValue` key: `["system:sleep","clip:7"]`, and a `ScreenRequest` as `{"feature":"ai","screen":"chat"}`. Anything that persists or transmits an identifier relies on that.
+
+`ItemID`s are stored in the usage, alias and override tables, so their format is fixed. Sources build them with the factory for their namespace (`ItemID.app(bundleID:)`, `.app(path:)`, `.system(_:)`, `.command(_:_:)`, `.quicklink(_:)`, `.script(path:)`, `.file(path:)`, `.clip(rowID:)`, `.snippet(_:)`):
 
 | Namespace | Local part | Example |
 |---|---|---|
@@ -519,7 +616,10 @@ Actions talk to the shell through `ActionContext`. Features reach other services
 ```swift
 // OpenRayCore
 public enum SourceLatency: Sendable { case inline, slow }   // inline: answers in under 5 ms
-public struct SearchQuery: Sendable { public var raw: String; public var normalized: String; public var head: String; public var tail: String }
+public struct SearchQuery: Sendable, Hashable {
+    public var raw: String; public var normalized: String; public var head: String; public var tail: String
+    public init(_ raw: String)                 // trims, folds and splits the text as typed
+}
 
 public protocol SearchSource: Sendable {
     var id: SourceID { get }
@@ -561,7 +661,7 @@ public protocol SearchSource: Sendable {
 }
 ```
 
-`SearchQuery.head` is the first whitespace-separated token of the query and `tail` the rest; quicklinks use them (§4.2.9). `ScreenRegistry` asks the feature named by `ScreenRequest.feature` for a `ScreenSpec` and keeps the spec alive while its frame is on the stack; the spec's closures capture the feature's Core view model. `BuiltInFeatures.swift` lists the `Feature` values and is the only place a new command is added.
+`SearchQuery.normalized` is the query without surrounding whitespace, folded for case, diacritics and width (§4.2.6). `head` is the first whitespace-separated token of the query and `tail` the rest, trimmed; quicklinks use them (§4.2.9). `ScreenRegistry` asks the feature named by `ScreenRequest.feature` for a `ScreenSpec` and keeps the spec alive while its frame is on the stack; the spec's closures capture the feature's Core view model. `BuiltInFeatures.swift` lists the `Feature` values and is the only place a new command is added.
 
 #### 4.2.4 Command registry
 
@@ -695,7 +795,7 @@ Data is split by kind, with one store for each:
 
 #### 4.3.1 Database files
 
-All paths derive from `Bundle.main.bundleIdentifier`, so Debug and Release builds never share data (§6.6).
+All paths come from `AppPaths` (Core), which derives them from `AppInfo.bundleIdentifier`, the running bundle's identifier, so Debug and Release builds never share data (§6.6). A process without a bundle identifier, such as a `swift test` run, uses its process name instead.
 
 | Path under `~/Library/Application Support/<bundle id>/` (mode 0700) | Contents |
 |---|---|
@@ -833,20 +933,26 @@ public struct PreferenceKey<Value: Codable & Sendable>: Sendable {
     public let defaultValue: Value
 }
 public protocol PreferencesStore: Sendable {
-    func value<V>(for key: PreferenceKey<V>) -> V
+    func value<V>(for key: PreferenceKey<V>) -> V                     // the key's default when nothing readable is stored
     func set<V>(_ value: V, for key: PreferenceKey<V>)
-    func changes<V>(for key: PreferenceKey<V>) -> AsyncStream<V>      // for code off the main actor
+    /// The current value, then the new value after every `set` on this store. For code off the main actor.
+    func changes<V>(for key: PreferenceKey<V>) -> AsyncStream<V>
 }
 public final class UserDefaultsPreferencesStore: PreferencesStore, @unchecked Sendable {
     public init(defaults: UserDefaults)        // UserDefaults is documented thread-safe
 }
-public final class InMemoryPreferencesStore: PreferencesStore {}      // Mutex-backed, for tests
+public final class InMemoryPreferencesStore: PreferencesStore {}      // Mutex-backed, for tests; encodes values the same way
 @MainActor @Observable public final class Preferences {
     public init(store: any PreferencesStore)  // what views and main-actor code read and write
+    public subscript<V>(key: PreferenceKey<V>) -> V { get set }
 }
 ```
 
-Every preference has one `PreferenceKey`, declared next to the feature that owns it:
+**Stored form.** A value is stored as a native property-list object, not as encoded `Data`, so `defaults read` shows it: a `Bool` as a boolean, `[String]` as an array, a `HotKey` as a dictionary of two integers (`{ keyCode = 49; modifiers = 2; }`). The store encodes the value with `PropertyListEncoder` inside a one-element array, because a property list needs a container at the top level, and stores the element. A stored object that does not decode as the key's type reads as the key's default and is logged.
+
+**Changes.** `changes(for:)` yields the current value at once and then the value after every `set` made through the same store instance. A consumer that falls behind sees only the newest value, and after concurrent sets the last value yielded is the one that is stored. It does not observe `UserDefaults`: a write by another process (`defaults write`) or through another store instance is picked up by the next `value(for:)`, not by the stream. `Preferences` has the same boundary: reading a preference in an observation scope, such as a SwiftUI body, re-runs that scope when a preference is written through that `Preferences` object. So the app creates one store and one `Preferences`, in `AppDelegate`, and everything shares them.
+
+Every preference has one `PreferenceKey`, declared next to the feature that owns it as a static member in an extension of `PreferenceKey` (`PreferenceKey.launcherHotKey`), with a typed accessor on `Preferences` (`preferences.launcherHotKey`):
 
 | Key | Type | Default | Milestone |
 |---|---|---|---|
@@ -870,8 +976,8 @@ Settings is a hand-built `NSWindow`, not the SwiftUI `Settings` scene. Since mac
 ```swift
 // App target
 @MainActor final class SettingsWindowController: NSWindowController, NSWindowDelegate {
-    init(panes: [SettingsPane])
-    func show(pane: SettingsPane.ID? = nil)   // hides the launcher, NSApp.activate(), makeKeyAndOrderFront
+    init(panes: [SettingsPane], focusRestorer: FocusRestorer)
+    func show(pane: SettingsPane.ID? = nil)   // records the frontmost app, NSApp.activate(), makeKeyAndOrderFront
 }
 struct SettingsPane: Identifiable {
     let id: String
@@ -882,7 +988,11 @@ struct SettingsPane: Identifiable {
 }
 ```
 
-The menu-bar item, ⌘, in the launcher, the "OpenRay Settings" command and hotkey failures all call `show(pane:)`. The window's content is an `NSHostingController` with a sidebar of panes. The app stays `.accessory` throughout (§4.1.1). `NSApp.activate()` (macOS 14+) is documented as "not guaranteed"; if the window is not key after showing, the controller retries once on the next run-loop turn. UNVERIFIED: that this reliably brings the window to the front on macOS 26 and 27, including when invoked from the panel over a full-screen app; on the manual checklist.
+The menu-bar item, ⌘, in the launcher, the "OpenRay Settings" command and hotkey failures all call `show(pane:)`. It does not hide the launcher: the panel hides when it resigns key, and ⌘, hides it after Settings is up (§4.1.7). The app stays `.accessory` throughout (§4.1.1). `NSApp.activate()` (macOS 14+) is documented as "not guaranteed"; one run-loop turn after showing, the controller activates once more if none of OpenRay's windows is key. It leaves things alone if another OpenRay window, such as the launcher, has taken the keyboard since. UNVERIFIED: that this reliably brings the window to the front on macOS 26 and 27, including when invoked from the panel over a full-screen app; on the manual checklist.
+
+The window is titled, closable and miniaturisable, 660 × 420 points, and is never released when closed. ⌘W closes it through File › Close Window in the hidden main menu (§4.1.1). When it closes, the controller runs `FocusRestorer.restoreIfNeeded()` one run-loop turn later, because closing its last window would otherwise leave OpenRay the active app with nowhere for typing to go (§4.1.7).
+
+The window's content is an `NSHostingController` whose root view is a plain `HStack`, not a `NavigationSplitView`: a `List` of the panes in sidebar style, sorted by `order`, then a divider, then the selected pane's view. The selection lives in an `@Observable` object the controller owns, which is how `show(pane:)` switches panes from AppKit.
 
 **Panes.** General (hotkey recorder, launch at login, permissions with their state and Grant buttons) ships in M1 with the hotkey recorder only. Commands (enable, disable and hide items; aliases; quicklinks; fallback order) arrives in M3. Each feature contributes its own pane through `Feature.settingsPane` (Clipboard, Quick AI, Window Management, File Search, Snippets, Scripts). Updates and About (version, licences and acknowledgements) arrive in M6.
 
@@ -1440,9 +1550,9 @@ Considered and not adopted: KeyboardShortcuts (MIT; the hotkey code needed is ab
 
 **Principles.** No user input may crash the app: the calculator, the matcher, the SSE parser and the script parser return errors as values and are fuzz-tested. Each feature degrades on its own (a failing source omits its section, a missing permission degrades or explains, an unavailable database leaves search working). Errors thrown from actions surface in the HUD (§4.1.4). Failures that need the user to act open the relevant settings pane; nothing posts user notifications.
 
-**Logging.** `Logger(subsystem: Bundle.main.bundleIdentifier!, category: …)`, one category per subsystem (`launcher`, `search`, `storage`, `clipboard`, `ai`, `windows`, `files`, `scripts`, `permissions`, `updates`). Interpolations are private by default. Queries, clipboard contents, AI prompts and replies, and file paths use `privacy: .private`, or `.private(mask: .hash)` where entries need correlating. Counts and timings use `.public`. API keys are never logged.
+**Logging.** `Logger(subsystem: AppInfo.bundleIdentifier, category: …)`, one category per subsystem (`launcher`, `search`, `storage`, `clipboard`, `ai`, `windows`, `files`, `scripts`, `permissions`, `updates`). The loggers are static members of `Log` in Core (`Log.launcher`, `Log.storage`), each added with the first subsystem that logs. Interpolations are private by default. Queries, clipboard contents, AI prompts and replies, and file paths use `privacy: .private`, or `.private(mask: .hash)` where entries need correlating. Counts and timings use `.public`. API keys are never logged.
 
-**Signposts.** One `OSSignposter(subsystem: bundleID, category: .pointsOfInterest)` with intervals `hotkeyToFirstFrame`, `keystrokeToResults`, `indexBuild` and `dbQuery`, viewed in Instruments against the budget in §4.1.9.
+**Signposts.** One `OSSignposter(subsystem: bundleID, category: .pointsOfInterest)`, held with the interval names by `Signposts` in Core, with intervals `hotkeyToFirstFrame`, `keystrokeToResults`, `indexBuild` and `dbQuery`, viewed in Instruments against the budget in §4.1.9. The first two begin when their event is handled, not when it happened, and carry the true time since the event in their end message (§4.1.9).
 
 **Diagnostics.** About › "Copy diagnostics" reads `OSLogStore(scope: .currentProcessIdentifier)`. UNVERIFIED: whether private values come back redacted when read in-process. Crash reports come from `~/Library/Logs/DiagnosticReports`; optionally a local-only `MXMetricManager` subscriber shows the last crash diagnostic in About. There is no analytics or crash SDK, and `PRIVACY.md` lists every network request (the appcast fetch and user-triggered Claude API calls).
 
@@ -1452,7 +1562,7 @@ Considered and not adopted: KeyboardShortcuts (MIT; the hotkey code needed is ab
 
 | Area | Core tests (CI) |
 |---|---|
-| Shell | `KeyRouter` table (marked text, AZERTY ⌘1 by key code, Cyrillic ⌘K fallback, editing-chord fall-through); `LauncherState` (push and pop restore query and selection, the Esc ladder, Tab fallback, stale generations dropped); `PanelPlacement` (negative-origin displays, mouse on a seam, displays without a menu bar); `HotKey` (Codable round trip, Carbon modifier bits, validation) |
+| Shell | `KeyRouter` table (marked text, exact modifiers, keypad Enter, AZERTY ⌘1 by key code, Dvorak ⌘K by character, Cyrillic ⌘K fallback, item shortcuts and their priority, editing-chord fall-through); `LauncherState` (push and pop restore query and selection, first row on a new query, selection kept by position, no wrap-around, the Esc ladder, Tab fallback, stale generations dropped, re-show, the action panel, what is ignored while an action runs, late outcomes dropped by serial); `PanelPlacement` (negative-origin displays, mouse on a seam and on a top edge, displays without a menu bar, whole points); `HotKey` (Codable round trip and stored format, Carbon modifier bits, validation); identifiers (namespace formats, plain-string coding); `PreferencesStore` and `Preferences` (round trips, defaults for unreadable values, `changes(for:)`, observation) |
 | Search | Matcher golden cases (prefix against fuzzy, "vsc", "gh" → GitHub Desktop, Größe/grosse, 微信 by "weixin" and "wx", full-width input) and a property test that highlights increase and fold to the query; ranking with an injected clock and fake `UsageSnapshot` (learning flips "s" to Safari; frecency alone cannot lift q = 0.3 over a prefix match); decay maths at exact half-lives and pruning; `SearchSession` with fake sources (cancellation, the 12 ms publish, slow sections, selection kept by ID); app index over a temporary directory of fake bundles (Info.plist, loctable, lproj, symlink, duplicate bundle ID) and one FSEvents test with a 5 s timeout; quicklink expansion (spaces, `&`, `#`, emoji, empty argument); system command descriptors |
 | Storage | Every store against `AppDatabase.inMemory()`; migrations from fixture databases of each earlier milestone; FTS queries; dedup bumps; pruning with an injected clock; a trigram-table smoke test |
 | Calculator | Table-driven cases in `en_US`, `de_DE` and `fr_CH`; property tests against `Double` within tolerance; fuzzing with random bytes (no crash, bounded time) |
@@ -1472,7 +1582,7 @@ SSE fixtures are recorded by `Scripts/record-claude-fixture.sh` with curl and th
 
 ### 5.5 Accessibility and localisation
 
-**Accessibility.** The search field keeps focus, so selection changes are not announced automatically; `LauncherModel` posts `AccessibilityNotification.Announcement("<title>, <n> of <m>")`, throttled. Rows carry labels and the `.isSelected` trait. Animations follow `NSWorkspace.shared.accessibilityDisplayShouldReduceMotion` in AppKit and `@Environment(\.accessibilityReduceMotion)` in SwiftUI, and reduced transparency is respected. Every function is reachable without a mouse, including the hotkey recorder. VoiceOver is on the manual checklist.
+**Accessibility.** The search field keeps focus, so selection changes are not announced automatically; `LauncherModel` posts `AccessibilityNotification.Announcement("<title>, <n> of <m>")` once the selection has rested for 300 ms, so a held arrow key does not queue one announcement per row, and only while the panel is visible. Rows carry labels and the `.isSelected` trait. Animations follow `NSWorkspace.shared.accessibilityDisplayShouldReduceMotion` in AppKit and `@Environment(\.accessibilityReduceMotion)` in SwiftUI, and reduced transparency is respected. Every function is reachable without a mouse, including the hotkey recorder. VoiceOver is on the manual checklist.
 
 **Localisation.** The app target uses String Catalogs. Core uses `String(localized:bundle: .module)` with `defaultLocalization: "en"` in `Package.swift`. No user-visible string is built by concatenation, and plurals go through the catalog. Matching already handles localised app names and non-Latin scripts (§4.2.6, §4.2.8). Only English ships in v0.1.
 
@@ -1540,7 +1650,8 @@ The Sparkle strategy parses whatever URL it is given as an appcast; without `url
 A contributor with no Apple account clones the repo, opens the project and runs. The Debug configuration:
 
 - signs ad-hoc (`CODE_SIGN_IDENTITY = "-"`, as today);
-- uses bundle ID `io.github.gabrieldeml.openray.debug` and product name "OpenRay Dev", so it never shares TCC grants, the login item, defaults or the database with an installed release (this changes in M1, before any of those exist);
+- uses bundle ID `io.github.gabrieldeml.openray.debug`, so it never shares TCC grants, the login item, defaults or the database with an installed release (set in M1, before any of those existed);
+- keeps `PRODUCT_NAME` as `OpenRay`, so the built product is `OpenRay.app` and its module `OpenRay` in both configurations, and sets `CFBundleDisplayName` to "OpenRay Dev" (`INFOPLIST_KEY_CFBundleDisplayName`), so the two builds can be told apart wherever macOS shows an app's display name. Text the app draws itself uses `AppInfo.name`, "OpenRay", in both;
 - starts no Sparkle updater and disables the launch-at-login toggle;
 - adds `com.apple.security.cs.disable-library-validation`, because library validation can stop ad-hoc builds from loading Sparkle.
 
@@ -1552,7 +1663,7 @@ The designated requirement of an ad-hoc signature is a bare `cdhash` (checked wi
 
 | Milestone | Delivers |
 |---|---|
-| 1 Launcher shell | `LauncherPanel` and its configuration (§4.1.1), hidden Edit menu, `HotKey`/`HotKeyCenter`/recorder (§4.1.2), `KeyRouter` (§4.1.3), `LauncherState` and `LauncherModel` (§4.1.4), the value types of §4.2.1–4.2.2 in their final shape and the results list rendering `ResultSection`s from a fake `SearchSource` (§4.1.5), `DisplayGeometry` and `PanelPlacement` (§4.1.8), the latency signposts (§4.1.9, §5.3), `PreferencesStore`/`Preferences` with `launcher.hotKey` (§4.3.4), `SettingsWindowController` with the General pane (§4.3.5), the Debug bundle ID and bundle-ID-derived paths and logger (§6.6), the concurrency build settings (§3.4), the Core import check, `-OpenRayShowPanelOnLaunch` |
+| 1 Launcher shell | `LauncherPanel` and its configuration (§4.1.1), the hidden main menu with its Edit menu, `HotKey`/`HotKeyCenter`/`LauncherHotKey`/recorder (§4.1.2), `KeyRouter` (§4.1.3), `LauncherState` and `LauncherModel` (§4.1.4), the value types of §4.2.1–4.2.2 in their final shape and the results list rendering `ResultSection`s from a fake `SearchSource` (§4.1.5), `FocusRestorer.restoreIfNeeded()` (§4.1.7), `DisplayGeometry` and `PanelPlacement` (§4.1.8), the latency signposts (§4.1.9, §5.3), `PreferencesStore`/`Preferences` with `launcher.hotKey` (§4.3.4), `SettingsWindowController` with the General pane (§4.3.5), the Debug bundle ID and bundle-ID-derived paths and logger (§6.6), the concurrency build settings (§3.4), the Core import check, `-OpenRayShowPanelOnLaunch`. Until M2 the model asks the one fake source directly and choosing a row only closes the launcher; until M3 ⌘K does nothing |
 | 2 App search | The `ActionContext` implementation for primary actions; `CommandRegistry`, `SearchSession`, the matcher, frecency and `SQLiteUsageStore` (§4.2.4–4.2.7); GRDB, `AppDatabase` and `m2_usage` (§4.3); `AppIndexSource` with a primary action only (§4.2.8); pick recording in `LauncherModel` |
 | 3 Command model | Secondary actions and the ⌘K panel; `ScreenRequest`, `ScreenSpec`, `ScreenRegistry`, `ScreenContext`, list and custom screens (§4.1.5); `Feature` and `FeatureEnvironment`; the HUD and in-panel confirmations (§4.1.6); `m3_commands` and `CommandStore`; aliases, overrides, quicklinks and the fallback section (§4.2.9); system commands, `SystemControl` and `AppleEventSender` (§4.2.10); `PermissionCenter` with Automation and the permission screen (§5.1); the Commands pane and feature panes; launch at login (§4.3.6); onboarding steps 1–3 (§4.3.7) |
 | 4 First built-ins | Calculator (§4.4); clipboard history, `m4_clipboard` and `ClipboardStore` (§4.5); `PasteService` and `FocusRestorer.restore()` (§4.1.7); Accessibility in `PermissionCenter`; onboarding steps 4 and 6 |
@@ -1584,8 +1695,8 @@ The designated requirement of an ad-hoc signature is a bare `cdhash` (checked wi
 |---|---|---|---|
 | 1 | Panel level | Is `.screenSaver` the lowest level at which a key, transient panel works over full-screen Spaces, or does `.popUpMenu` suffice? Does the choice hide input-method candidate windows, tooltips or system prompts? Also confirm that `.nonactivatingPanel` must be set in `init`. | M1 |
 | 2 | Hotkey behaviour | On macOS 26 and 27: does ⌥Space register; do Carbon hotkeys fire under Secure Event Input and during Mission Control; does an existing non-exclusive registration make `kEventHotKeyExclusive` fail? | M1 |
-| 3 | Default hotkey | Ship ⌥Space (with the ⌃⌥Space fallback), or push users to ⌘Space in onboarding? Decide after item 2. | M3 |
-| 4 | Activation and focus | Do `NSApp.activate()` for Settings and `yieldActivation`/`activate(from:)` for focus restore work reliably from an accessory app on macOS 26 and 27? Does the hand-installed Edit menu survive the SwiftUI lifecycle and fire while the panel is key? | M1 |
+| 3 | Default hotkey | Ship ⌥Space (with the session-only ⌃⌥Space fallback of §4.1.2), or push users to ⌘Space in onboarding? Decide after item 2. | M3 |
+| 4 | Activation and focus | Do `NSApp.activate()` for Settings and `yieldActivation`/`activate(from:)` for focus restore work reliably from an accessory app on macOS 26 and 27? Does `activate(from:)` returning `true` mean the app came forward, and when the restorer falls back to `NSApp.hide(nil)`, does the keyboard end up with the app the user expects? Is `NSApp.isActive` true while only the non-activating panel is key, as running the restorer after `orderOut` assumes (§4.1.1)? Does the hand-installed main menu survive the SwiftUI lifecycle, and do its key equivalents fire while the panel is key (the Edit menu) and in the settings window (the Edit menu and ⌘W)? | M1 |
 | 5 | List performance | Does `LazyVStack` meet 16 ms with 200 rows replaced per keystroke, and does laying out at launch warm the first show? If not, switch to `NSTableView`. | M1 |
 | 6 | Pasteboard privacy | Is the alert enforced by default on macOS 26.x and 27.2, and which calls trigger it? Run the experiment in §4.5. If even `changeCount` alerts, reconsider whether clipboard history can ship as designed. | M4 |
 | 7 | Automation targets | Does sending to loginwindow prompt? Does the Privacy_Automation settings link work on macOS 26? Test with a signed, hardened build. | M3 |
