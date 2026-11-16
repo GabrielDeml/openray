@@ -45,6 +45,8 @@ actor FakeFileSearcher: FileSearching {
     var apps: [OpenWithApp] = []
     /// Makes every call that can fail throw `Refused`.
     var refusesEverything = false
+    /// What happens while the move to the Trash waits, as it does on a prompt of macOS.
+    var whileMovingToTrash: (() async -> Void)?
 
     private(set) var calls: [Call] = []
 
@@ -60,6 +62,7 @@ actor FakeFileSearcher: FileSearching {
     func moveToTrash(_ url: URL) async throws {
         calls.append(.moveToTrash(url))
         if refusesEverything { throw Refused() }
+        await whileMovingToTrash?()
     }
 
     func appsAbleToOpen(_ url: URL) -> [OpenWithApp] {

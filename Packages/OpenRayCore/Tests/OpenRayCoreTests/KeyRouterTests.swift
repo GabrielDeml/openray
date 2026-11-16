@@ -321,6 +321,19 @@ import OpenRayCore
                 == .performAction(reveal))
     }
 
+    // ⌘1 held on "Search Snippets" would otherwise paste the first snippet of the list it
+    // opened.
+    @Test func heldCommandDigitActsOnlyOnce() {
+        let repeating = KeyRouter.Context(queryIsEmpty: false, depth: 0, keyIsRepeating: true)
+        let firstDigit = VirtualKey.ansiDigits[0]
+
+        #expect(intent(firstDigit, [.command], "1", in: repeating) == nil)
+        // Unhandled, it would go on to AppKit as a key equivalent nobody has.
+        #expect(swallows(firstDigit, [.command], "1", in: repeating))
+
+        #expect(intent(firstDigit, [.command], "1") == .activateIndex(1))
+    }
+
     @Test func heldReturnOfAnInputMethodStaysWithIt() {
         let composing = KeyRouter.Context(
             queryIsEmpty: false, depth: 0, hasMarkedText: true, keyIsRepeating: true)

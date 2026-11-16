@@ -374,7 +374,13 @@ import Observation
 
     /// Takes a file that was just moved to the Trash off the list. Spotlight's index learns of
     /// the move a moment later, so searching again now would bring the row back.
+    ///
+    /// The move can wait on a prompt of macOS, and the list may have moved on by then. A list
+    /// that no longer shows the file is left as it is, with whatever message it has.
     private func removeFromList(_ hit: FileHit) {
+        let isShown = shownHits.contains { shown in shown.path == hit.path }
+        guard isShown else { return }
+
         var remaining = shownHits
         remaining.removeAll { shown in shown.path == hit.path }
         show(

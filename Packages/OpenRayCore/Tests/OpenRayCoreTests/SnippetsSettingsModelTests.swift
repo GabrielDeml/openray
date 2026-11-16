@@ -193,21 +193,23 @@ import Testing
         let signature = snippet("Signature", keyword: "sig")
         let (model, store) = try await makeModel(holding: [signature])
         model.edit(nil)
-        var draft = try #require(model.draft)
-        draft.name = "Second signature"
-        draft.keyword = "sig"
-        draft.body = "Cheers"
+        // The editor's fields write into the draft, and Save hands it over as it is.
+        model.draft?.name = "Second signature"
+        model.draft?.keyword = "sig"
+        model.draft?.body = "Cheers"
+        let typed = try #require(model.draft)
 
-        await model.save(draft)
+        await model.save(typed)
 
         #expect(model.errorMessage == "Another snippet already has the keyword “sig”.")
         // What was typed is still in the editor.
-        #expect(model.draft == draft)
+        #expect(model.draft == typed)
         #expect(try await store.search("") == [signature])
 
         // With another keyword it goes through, and the message goes away.
-        draft.keyword = "sig2"
-        await model.save(draft)
+        model.draft?.keyword = "sig2"
+        let corrected = try #require(model.draft)
+        await model.save(corrected)
 
         #expect(model.errorMessage == nil)
         #expect(model.draft == nil)
@@ -222,10 +224,9 @@ import Testing
         #expect(model.errorMessage != nil)
 
         model.cancelEditing()
-        model.edit(signature)
 
         #expect(model.errorMessage == nil)
-        #expect(model.draft == signature)
+        #expect(model.draft == nil)
     }
 
     // MARK: Preview

@@ -552,6 +552,8 @@ screen, and no snippet was ever pasted.
   pasted. The same on the "Search Files" row under a search that finds
   nothing: the list opens and no file does. In root search a held Return
   on an app opens it once, and the search field never loses its caret.
+  Then the same with ⌘1 held on the "Search Snippets" row: nothing is
+  pasted, and nothing beeps while the key is down.
 - [ ] What an empty list says: "No snippets yet. Add one with Create
   Snippet." while there are none, whatever is typed, and "No Results" for a
   text that finds nothing among the ones there are. Is the text centred in

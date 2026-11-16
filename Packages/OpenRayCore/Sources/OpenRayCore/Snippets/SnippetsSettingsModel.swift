@@ -126,8 +126,11 @@ import Observation
             draft = nil
             newDraftID = nil
         } catch {
-            errorMessage = error.localizedDescription
-            draft = snippet
+            // The editor still holds what was typed. One that was closed while the store was
+            // asked stays closed, and has nowhere to show the message.
+            if draft != nil {
+                errorMessage = error.localizedDescription
+            }
         }
     }
 

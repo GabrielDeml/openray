@@ -19,7 +19,7 @@ public enum FileRanker {
         /// The two folders of a Library that hold the user's own documents: iCloud Drive, and
         /// the drives of Dropbox, OneDrive and their like. What lies in them is not noise.
         static let cloudFoldersOfLibrary: Set<String> = ["Mobile Documents", "CloudStorage"]
-        /// What a file inside one of them loses: enough to put a name that starts with the
+        /// What a file inside a noisy folder loses: enough to put a name that starts with the
         /// query below a name elsewhere that has it at the start of a later word.
         static let noisyFolderPenalty = 0.3
 

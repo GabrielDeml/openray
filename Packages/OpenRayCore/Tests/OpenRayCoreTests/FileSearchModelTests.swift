@@ -511,6 +511,20 @@ import Testing
         #expect(context.answers.last?.emptyMessage == nothingFound)
     }
 
+    @Test func fieldClearedWhileTheMoveWaitedKeepsItsHint() async throws {
+        let (_, context) = await makeModelShowing([report])
+        let moveToTrash = try action("move-to-trash", in: context)
+        host.whileMovingToTrash = {
+            await context.typeAndWaitForAnswer("")
+        }
+
+        _ = try await moveToTrash.perform(actionContext)
+
+        // The list no longer shows the file, so there is no row to take off it.
+        #expect(context.answers.last?.query == "")
+        #expect(context.answers.last?.emptyMessage == hint)
+    }
+
     @Test func fileThatCannotBeTrashedStaysOnTheListAndTheErrorIsThrown() async throws {
         let (model, context) = await makeModelShowing([report])
         let answersBefore = context.answers.count

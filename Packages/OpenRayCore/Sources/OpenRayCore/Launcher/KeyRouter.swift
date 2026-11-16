@@ -79,13 +79,14 @@ public struct KeyRouter: Sendable {
     ///
     /// Every other key is kept while it has nowhere sensible to go: under a confirmation, where
     /// it would edit the query behind the question, and on a screen that hides the search
-    /// field, where AppKit would find no one to take it and beep. A held Return is kept as
-    /// well: it has no intent, and the field editor would end editing on it.
+    /// field, where AppKit would find no one to take it and beep. A held Return and a held
+    /// ⌘1 to ⌘9 are kept as well: they have no intent, and the field editor would end editing
+    /// on the one and beep at the other.
     public func swallows(_ chord: KeyChord, in context: Context) -> Bool {
         if isQuit(chord) { return true }
         // An input method that is composing gets all its keys, as in `intent(for:in:)`.
         if context.hasMarkedText { return false }
-        if context.keyIsRepeating && isReturn(chord) { return true }
+        if context.keyIsRepeating && (isReturn(chord) || isRowDigit(chord)) { return true }
         return context.confirmationOpen || context.searchFieldHidden
     }
 
@@ -109,6 +110,11 @@ public struct KeyRouter: Sendable {
         let isReturnKey =
             chord.keyCode == VirtualKey.returnKey || chord.keyCode == VirtualKey.keypadEnter
         return chord.modifiers.isEmpty && isReturnKey
+    }
+
+    /// ⌘1 to ⌘9, by the key code of the digit row.
+    private func isRowDigit(_ chord: KeyChord) -> Bool {
+        chord.modifiers == [.command] && VirtualKey.ansiDigits.contains(chord.keyCode)
     }
 
     /// Select All, Copy, Paste, Cut, Undo and Redo, which the field editor performs through the
@@ -181,6 +187,8 @@ public struct KeyRouter: Sendable {
             if chord.types("k", ansiKeyCode: VirtualKey.ansiK) { return .toggleActionPanel }
             // By key code: the digit row needs Shift on AZERTY, and ⌘⇧1 is a different chord.
             if let digit = VirtualKey.ansiDigits.firstIndex(of: chord.keyCode) {
+                // ⌘n is Return on the n-th row, and like Return it acts once for each press.
+                if context.keyIsRepeating { return nil }
                 return .activateIndex(digit + 1)
             }
             if chord.types("[", ansiKeyCode: VirtualKey.ansiLeftBracket) { return .back }
