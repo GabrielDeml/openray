@@ -119,9 +119,9 @@ In this order. Later steps need what earlier ones make.
 
 ### Get CI green
 
-`.github/workflows/ci.yml` passed on 2026-11-15 for milestones 1 to 7,
-clipboard history apart, and all of that is on `main`. The runner had
-Xcode 26.6 with Swift 6.3.3, older than what everything was written with.
+`.github/workflows/ci.yml` has passed for milestones 1 to 8, clipboard
+history apart, and all of that is on `main`. The runner had Xcode 26.6
+with Swift 6.3.3, older than what everything was written with.
 Two runs before that stopped in "Test core package", both on the same test:
 first on a `Task` whose result type the runner's compiler could not infer,
 then on a local constant named like the helper that the closure above it
@@ -138,11 +138,11 @@ calls. The newer compiler accepts both.
   `Files/SpotlightSearcher.swift` as it is: an actor on a dispatch queue of
   its own that calls `MDQuery` and uses the `kMDItem…` and `kMDQueryScope…`
   constants of CoreServices.
-- [ ] Read the first run that has script commands. It is the first one whose
-  tests start processes, so look at the time the script suites take there
-  and at any test that ran into its time limit. `PosixScriptRunner.swift`
-  uses `posix_spawn_file_actions_addchdir`, which the SDK has from macOS 26
-  on, and `SF_DATALESS` from `sys/stat.h`.
+- [x] A green run with script commands, the first whose tests start
+  processes. "Test core package" took three minutes there, the build
+  included, and no test ran into its time limit. The runner's SDK has
+  `posix_spawn_file_actions_addchdir` and `SF_DATALESS`, which
+  `PosixScriptRunner.swift` and `ScriptSecurity.swift` use.
 - [ ] `shellcheck Scripts/*.sh` and `actionlint` once. Neither was installed
   where the scripts and the workflows were written; they were only parsed
   (`bash -n`, and as YAML).
