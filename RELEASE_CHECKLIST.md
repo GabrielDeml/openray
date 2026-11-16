@@ -11,6 +11,10 @@ never run, CI has never run on GitHub's `macos-26` runner, and nothing that
 milestone 6 put on screen has been looked at. This file is the list of what is
 left. How the pieces work is in section 6 of [docs/DESIGN.md](docs/DESIGN.md).
 
+Milestone 7 has added the window commands and Lock Screen so far, built the
+same way: no window was moved and the screen was never locked. Their checks
+are the first block of section 4.
+
 Work through sections 1 and 2 once. Sections 3 and 4 are for every release.
 
 ## 1. Confirm before the first tag
@@ -52,6 +56,17 @@ old identifier.
   cask all say `https://github.com/GabrielDeml/openray`. They are right as
   long as the repository stays where it is. The release job checks the cask's
   `url` against the repository it runs in.
+- [ ] **What the first release carries.** `CHANGELOG.md` has window management
+  and Lock Screen under Unreleased, beside everything of v0.1. The roadmap
+  has each feature of milestone 7 ship as a release of its own: move the two
+  entries to the version they ship in, or leave them where they are if v0.1
+  is to have them.
+- [ ] **Lock Screen: keep it or take it out** (item 8). It ships only if the
+  check in section 4 shows that it locks the screen. If it does not, remove
+  the command (`lockScreen` in `SystemCommandSource`, `SystemControl` and
+  `MacSystemControl`, with its tests and its catalog entries) and its name
+  from the Permissions step of onboarding, `README.md`, `PRIVACY.md`,
+  `ROADMAP.md`, `CHANGELOG.md` and design §4.2.10.
 
 ## 2. One-time setup
 
@@ -59,12 +74,12 @@ In this order. Later steps need what earlier ones make.
 
 ### Get CI green
 
-`.github/workflows/ci.yml` has never run for milestones 1 to 6: everything was
+`.github/workflows/ci.yml` has never run for milestones 1 to 7: everything was
 built with a newer Xcode than the Xcode 26 and Swift 6.2 of the `macos-26`
 runner.
 
 - [ ] Open a pull request, or push to `main`, and read the run: CI runs on
-  those two and on nothing else. The three things most likely to fail there
+  those two and on nothing else. The four things most likely to fail there
   and nowhere else:
   1. Swift 6.2 compiling `OpenRay/System/SparkleUpdater.swift`, which conforms
      to `SPUStandardUserDriverDelegate` with `@preconcurrency` (design §6.4).
@@ -75,6 +90,11 @@ runner.
   3. "Build app (Release)", the configuration the release job archives, and
      with it Xcode 26 merging the partial `Config/Info.plist` into the
      Info.plist it generates.
+  4. Swift 6.2 compiling the window commands of milestone 7:
+     `OpenRay/System/AXWindowController.swift`, an actor on a dispatch queue
+     of its own that holds `AXUIElement`s, and the typed throws
+     (`throws(WindowError)`) of `Windows/` in the package. Only a newer
+     compiler has seen them.
 - [ ] `shellcheck Scripts/*.sh` and `actionlint` once. Neither was installed
   where the scripts and the workflows were written; they were only parsed
   (`bash -n`, and as YAML).
@@ -377,6 +397,105 @@ permission prompt or calling the Claude API. The numbers in brackets are the
 open questions of section 8 of the design; settle each there once it has an
 answer.
 
+### New in milestone 7
+
+Window management and Lock Screen. File search and snippets are not built yet
+and have no checks here. For all of these OpenRay needs the Accessibility
+permission, and the window commands act on the front window of the app the
+launcher was opened over.
+
+- [ ] First use without the permission [15]. From a state where
+  Accessibility is not granted, run Left Half and then Lock Screen: each
+  should show the permission screen and do nothing else. Grant it from the
+  screen's button and run the command again without relaunching OpenRay.
+- [ ] The permission taken away while OpenRay runs [15]. Switch
+  Accessibility off in System Settings and run a window command: either the
+  permission screen appears, or the HUD says "Accessibility is no longer
+  allowed. Grant it in Settings › General." Note which, and whether macOS
+  answers the first call with `kAXErrorAPIDisabled` as design §5.1 expects.
+- [ ] Every window command on a Safari window, on one display [16]: the
+  four halves, the four quarters, the three thirds, the two two-thirds,
+  Maximize Window, Almost Maximize Window, Center Window and Restore Window.
+  Two halves side by side, and three thirds, should meet without a hole or
+  an overlap. A command repeated on a window that is in place does nothing.
+- [ ] A window command with the launcher opened over Settings [16]. The
+  command acts on the app that was in front before OpenRay, so a window
+  behind the Settings window moves. Is that what one expects, or should it
+  say "No window to move"?
+- [ ] Windows that do not take the size they are given [16]. Terminal grows
+  by whole characters: Right Half should end against the right edge and
+  Bottom Half against the bottom. System Settings has a size that cannot be
+  set: it should only move. A window with a minimum size larger than its
+  tile, such as a narrow third for Xcode, should keep to the edge of the
+  tile. Repeat each of these commands: the window should stay where it is
+  and not jump to its tile's corner and back.
+- [ ] Chrome and an Electron app, such as Visual Studio Code or Slack [16].
+  The window should land in one step, without an animation that leaves it
+  short of its tile. Afterwards the app's `AXEnhancedUserInterface` is back
+  as it was: with VoiceOver on, the app still reads its content. Then stop
+  the app while VoiceOver is on (`kill -STOP`), run a window command on it,
+  let it go on (`kill -CONT`) and run a window command on any app: after
+  that one the stopped app should read its content to VoiceOver again.
+- [ ] A full-screen window [16]: the HUD says "Full-screen windows cannot be
+  moved" and nothing moves. This rests on the undocumented `AXFullScreen`
+  attribute; if a full-screen window is moved or resized instead, the
+  attribute is not there.
+- [ ] No window and a slow app [16]. Over the Finder with every window
+  closed: "No window to move". Over an app that is stopped (`kill -STOP`
+  with its process ID, `kill -CONT` afterwards): "App not responding" after
+  about a second, and the launcher does not hang. If an app can be caught
+  so that it stops halfway through a move, repeat the command once it
+  answers again and then use Restore Window: it should lead back to where
+  the window was before the first try.
+- [ ] Two displays of different sizes [16]. Move Window to Next Display and
+  to Previous Display: a window that fills a tile fills the same tile on
+  the other display, any other window keeps its place and its share of the
+  screen, and after the last display comes the first. Try a display left of
+  and one above the primary. A window that hangs over the edge of its
+  display, or lies across two, should end up wholly on the display it moves
+  to. On one display the HUD says "No other display".
+- [ ] Restore Window [16]. After two commands in a row it leads back to
+  where the window was before the first. After dragging the window and one
+  more command it leads back to where it was dragged. Without an earlier
+  command the HUD says "No earlier position to restore". Tile a window on
+  an external display, unplug the display and use Restore Window: the HUD
+  says the same and the window stays in sight. Plug the display in again:
+  Restore Window now leads back.
+- [ ] Settings › Window Management: how the pane looks, a gap of 12 points
+  (the same space at the edges of the screen and between two tiles), and
+  that a negative number is stored as 0 [16].
+- [ ] Stage Manager [16]. With it on and the inset at 0: do the tiles already
+  stay clear of the strip, which would mean `visibleFrame` leaves it out
+  and the setting is not needed? If not, set the room for Stage Manager and
+  see that it is left on the side the strip is on. OpenRay takes that to be
+  the left, and the right when the Dock is set to the left edge, which it
+  reads from the `orientation` default of `com.apple.dock`: try the Dock at
+  the bottom, on the left, on the left and hidden, and on the left with the
+  window on a second display that does not hold the Dock. Turn Stage
+  Manager off and see that the room is given back, which shows that the
+  `GloballyEnabled` default says what it is taken to say.
+- [ ] macOS's own tiling [16]. Tile a window with macOS (drag it to an edge,
+  or Fn-Control-arrow), then use an OpenRay command on it, and the other
+  way round. Does the window keep a tiled state that macOS then acts on,
+  and how does "Tiled windows have margins" look next to a gap of 0?
+- [ ] The commands in search: "window", "tile" and "snap" each list all
+  nineteen, and the symbols fit. Center Third and the two two-thirds have
+  the nearest symbol there is, not one of their own.
+- [ ] Settings › General, the Accessibility row. It should read "Pasting
+  into the app you came from, Lock Screen, Left Half, and 18 more" on one
+  line. Whether there is a comma before the "and" depends on the region
+  the Mac is set to: US English has it, British English does not.
+- [ ] The Permissions step of onboarding on a fresh account: it has a third
+  paragraph now, about the window commands and Lock Screen. Does it still
+  fit the window?
+- [ ] Lock Screen [8]. With Accessibility granted, does the command lock the
+  screen, on macOS 26 and on macOS 27? Try it on a Dvorak layout as well,
+  where Q is another key, and with the launcher opened over OpenRay's own
+  Settings window. The command presses ⌃⌘Q whatever the Apple menu says, so
+  on a Mac where that shortcut was given to something else it does that
+  other thing. If it does not lock, Lock Screen goes: see
+  "Lock Screen: keep it or take it out" in section 1.
+
 ### New in milestone 6
 
 - [ ] A Debug build launches. It links `Sparkle.framework` for the first
@@ -576,7 +695,11 @@ In short:
   milestone 2. Tuning them needs recorded sessions, and there are none.
 - [ ] **UI tests in CI** (item 20), and the lint step for `swift format`,
   which CI does not run yet (design §5.4).
+- [ ] **File search and snippets**, the two features of milestone 7 that are
+  not built. Design §8, item 33 lists what has to be settled in the design
+  before either is started.
 - [ ] UNVERIFIED notes in the design that belong to features not built yet:
-  file previews and Files & Folders prompts (milestone 7), Apple events from
-  a script's `osascript` (milestone 8), and whether pasteboard access has a
-  usage-description key (clipboard history).
+  file previews and Files & Folders prompts (file search), the arrow presses
+  after a pasted snippet [30], Apple events from a script's `osascript`
+  (milestone 8), and whether pasteboard access has a usage-description key
+  (clipboard history).

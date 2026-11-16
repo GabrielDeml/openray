@@ -201,6 +201,12 @@ struct OnboardingView: View {
             .font(.callout)
             .foregroundStyle(.secondary)
             .multilineTextAlignment(.center)
+            Text(
+                "The window commands, such as Left Half, and Lock Screen need the same permission. OpenRay shows you where to grant it the first time you use one of them."
+            )
+            .font(.callout)
+            .foregroundStyle(.secondary)
+            .multilineTextAlignment(.center)
         }
     }
 

@@ -54,8 +54,8 @@ public final class SystemCommandSource: SearchSource {
 
     private static func fixedCommands(control: any SystemControl) -> [SearchItem] {
         [
-            sleep(using: control), restart(using: control), shutDown(using: control),
-            logOut(using: control), emptyTrash(using: control),
+            sleep(using: control), lockScreen(using: control), restart(using: control),
+            shutDown(using: control), logOut(using: control), emptyTrash(using: control),
             toggleAppearance(using: control), quitAllApps(using: control),
         ]
     }
@@ -84,6 +84,29 @@ public final class SystemCommandSource: SearchSource {
             return .closeLauncher
         }
         return command("sleep", title: title, symbol: "moon.fill", action: action)
+    }
+
+    private static func lockScreen(using control: any SystemControl) -> SearchItem {
+        let title = String(
+            localized: "Lock Screen", bundle: .module,
+            comment: "The command that locks the screen.")
+        // The shortcut is a key press that OpenRay makes, and macOS drops those without the
+        // Accessibility permission.
+        let action = ActionDescriptor(
+            id: ActionID(rawValue: "lock-screen"), title: title,
+            requiredPermissions: [.accessibility]
+        ) { context in
+            context.closeLauncher()
+            control.lockScreen()
+            return .closeLauncher
+        }
+        let keywords = [
+            String(
+                localized: "Lock", bundle: .module,
+                comment: "Another word the Lock Screen command is found by.")
+        ]
+        return command(
+            "lockScreen", title: title, keywords: keywords, symbol: "lock.fill", action: action)
     }
 
     private static func restart(using control: any SystemControl) -> SearchItem {

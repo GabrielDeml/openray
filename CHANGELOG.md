@@ -43,3 +43,13 @@ The first public release.
 - **Updates.** OpenRay checks for new versions if you allow it. "Check for
   Updates" is in the menu-bar menu and in the launcher.
 - **Homebrew.** `brew install gabrieldeml/openray/openray`.
+- **Window management.** Nineteen commands move and resize the front window
+  of the app you are in: the halves, the quarters, thirds and two thirds,
+  Maximize Window, Almost Maximize Window, Center Window, Move Window to Next
+  Display and to Previous Display, and Restore Window, which puts the window
+  back where it was. Type "window", "tile" or "snap" to see them all. They
+  need the Accessibility permission, and OpenRay shows where to grant it the
+  first time you use one. Settings › Window Management has the gap to leave
+  around windows and the room to leave for Stage Manager.
+- **Lock Screen.** Locks the screen from the launcher. It needs the
+  Accessibility permission.

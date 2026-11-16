@@ -11,6 +11,7 @@ enum BuiltInFeatures {
         [
             AppsFeature(),
             SystemCommandsFeature(),
+            WindowManagementFeature(),
             QuicklinksFeature(),
             CalculatorFeature(),
             QuickAIFeature(),

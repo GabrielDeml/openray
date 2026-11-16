@@ -113,6 +113,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let permissions = PermissionCenter()
         let workspace = WorkspaceActions()
         let hud = HUDController()
+        // Before the features, because Lock Screen posts its key press through it.
+        let pasteHost = MacPasteHost(focusRestorer: focusRestorer, hud: hud)
 
         // Read through `self`, because the features get the closure before the registry exists.
         let currentItems: @MainActor @Sendable () -> [SearchItem] = { [weak self] in
@@ -128,7 +130,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             preferencesStore: preferencesStore,
             permissions: permissions,
             secrets: KeychainSecretStore(),
-            system: MacSystemControl(appleEvents: AppleEventSender()),
+            system: MacSystemControl(appleEvents: AppleEventSender(), pasteHost: pasteHost),
             workspace: workspace,
             updates: updates,
             currentItems: currentItems,
@@ -142,7 +144,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         let registry = CommandRegistry(sources: sources, commands: commands)
         let search = SearchSession(registry: registry, usage: storage.usage, now: { Date() })
-        let pasteHost = MacPasteHost(focusRestorer: focusRestorer, hud: hud)
         let pasteService = PasteService(
             host: pasteHost, permissions: permissions, preferences: preferences)
         // The first feature that has one decides what Tab opens for a query.

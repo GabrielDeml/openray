@@ -11,6 +11,26 @@ import Observation
 
         public var id: Permission { permission }
 
+        /// How many commands `summary` names before it counts the rest.
+        private static let namedInSummary = 3
+
+        /// What the permission is for, in a line that stays short however many commands
+        /// need it: Accessibility has every window command.
+        public var summary: String {
+            if commandTitles.count <= Self.namedInSummary {
+                return commandTitles.formatted(.list(type: .and))
+            }
+            var parts = Array(commandTitles.prefix(Self.namedInSummary))
+            let remaining = commandTitles.count - parts.count
+            parts.append(
+                String(
+                    localized: "\(remaining) more", bundle: .module,
+                    comment:
+                        "The end of a list of commands that need a permission, after the first few were named: “Left Half, Right Half, Top Half, and 16 more”."
+                ))
+            return parts.formatted(.list(type: .and))
+        }
+
         /// What the row's button does: nothing to do, ask macOS, or go to System Settings.
         public var step: PermissionGate.Step {
             PermissionGate.step(for: permission, state: state)

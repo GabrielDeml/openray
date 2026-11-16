@@ -299,6 +299,67 @@ private let systemEvents = Permission.automation(bundleID: "com.apple.systemeven
             ])
     }
 
+    // What the shipped commands bring into the row: Lock Screen and the window commands.
+    @Test func accessibilityRowNamesLockScreenAndTheWindowCommandsAfterPasting() async throws {
+        let systemCommands = SystemCommandSource(control: FakeSystemControl())
+        let windowCommands = WindowCommandSource(
+            host: FakeWindowHost(), preferences: InMemoryPreferencesStore())
+        var systemItemSets = systemCommands.indexedItems().makeAsyncIterator()
+        var windowItemSets = windowCommands.indexedItems().makeAsyncIterator()
+        let systemItems = try #require(await systemItemSets.next())
+        let windowItems = try #require(await windowItemSets.next())
+        let model = PermissionListModel(
+            checker: checker, currentItems: { systemItems + windowItems })
+
+        await model.refresh()
+
+        let uses = try #require(model.rows.first { $0.permission == .accessibility }).commandTitles
+        #expect(
+            uses.prefix(4) == [
+                "Pasting into the app you came from", "Lock Screen", "Left Half", "Right Half",
+            ])
+        #expect(uses.last == "Restore Window")
+    }
+
+    // MARK: The summary of a row
+
+    private func accessibilitySummary(withCommands titles: [String]) async -> String? {
+        var commands: [SearchItem] = []
+        for title in titles {
+            commands.append(command(title, needs: .accessibility))
+        }
+        let model = makeModel(with: commands)
+        await model.refresh()
+        return model.rows.first { $0.permission == .accessibility }?.summary
+    }
+
+    @Test func summaryOfOneUseIsThatUse() async {
+        let summary = await accessibilitySummary(withCommands: [])
+
+        #expect(summary == "Pasting into the app you came from")
+    }
+
+    @Test func summaryNamesUpToThreeUses() async {
+        let summary = await accessibilitySummary(withCommands: ["Left Half", "Right Half"])
+
+        // The list is put together as the user's language does it, with or without a comma
+        // before the "and".
+        let named = ["Pasting into the app you came from", "Left Half", "Right Half"]
+        #expect(summary == named.formatted(.list(type: .and)))
+    }
+
+    @Test func summaryNamesThreeUsesAndCountsTheRest() async {
+        var titles: [String] = []
+        for number in 1...19 {
+            titles.append("Command \(number)")
+        }
+
+        let summary = await accessibilitySummary(withCommands: titles)
+
+        let parts = ["Pasting into the app you came from", "Command 1", "Command 2", "17 more"]
+        #expect(summary == parts.formatted(.list(type: .and)))
+    }
+
     @Test func grantAsksForAPermissionThatWasNeverAskedFor() async {
         checker.states = [finder: .notDetermined]
         let model = makeModel()

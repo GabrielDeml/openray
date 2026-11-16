@@ -19,11 +19,37 @@
     "%@ works by sending a command to %@, and macOS asks for your permission first." : {
       "comment" : "Explains an Automation permission. The first placeholder is a list of command names, the second an app's name."
     },
+    "%lld more" : {
+      "comment" : "The end of a list of commands that need a permission, after the first few were named: “Left Half, Right Half, Top Half, and 16 more”.",
+      "localizations" : {
+        "en" : {
+          "variations" : {
+            "plural" : {
+              "one" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld more"
+                }
+              },
+              "other" : {
+                "stringUnit" : {
+                  "state" : "translated",
+                  "value" : "%lld more"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "A key is saved in your Keychain" : {
       "comment" : "Quick AI settings: the state of the API key when one is stored."
     },
     "Accessibility" : {
       "comment" : "The name of the Accessibility permission, as in System Settings."
+    },
+    "Accessibility is no longer allowed. Grant it in Settings › General." : {
+      "comment" : "Shown when a window command fails because OpenRay has lost the Accessibility permission."
     },
     "Add Alias…" : {
       "comment" : "The action that opens Settings, where the selected app can be given an alias."
@@ -34,8 +60,14 @@
     "Allowed" : {
       "comment" : "The state of a permission the user has granted."
     },
+    "Almost Maximize Window" : {
+      "comment" : "The window command that fills most of the screen and leaves a margin all around."
+    },
     "Answer cut off" : {
       "comment" : "Quick AI: shown under an answer that ended at the length limit."
+    },
+    "App not responding" : {
+      "comment" : "Shown when the app whose window was to be moved did not answer in time."
     },
     "Application" : {
       "comment" : "The kind of a search result that is an app, shown at the end of its row."
@@ -52,8 +84,23 @@
     "Automation: %@" : {
       "comment" : "The permission to send commands to another app, which is named."
     },
+    "Bottom Half" : {
+      "comment" : "The window command that fills the bottom half of the screen."
+    },
+    "Bottom Left Quarter" : {
+      "comment" : "The window command that fills the bottom left quarter of the screen."
+    },
+    "Bottom Right Quarter" : {
+      "comment" : "The window command that fills the bottom right quarter of the screen."
+    },
     "Calculator" : {
       "comment" : "The kind of a search result that is the calculator's answer, shown at the end of its row."
+    },
+    "Center Third" : {
+      "comment" : "The window command that fills the middle third of the screen."
+    },
+    "Center Window" : {
+      "comment" : "The window command that moves a window to the middle of the screen at the size it has."
     },
     "Changes that were not saved are lost." : {
       "comment" : "The message of the confirmation before force quitting an app."
@@ -130,6 +177,12 @@
     "Finder" : {
       "comment" : "The name of the Finder app."
     },
+    "First Third" : {
+      "comment" : "The window command that fills the left third of the screen."
+    },
+    "First Two Thirds" : {
+      "comment" : "The window command that fills the left two thirds of the screen."
+    },
     "Force Quit" : {
       "comment" : "The button that confirms force quitting an app."
     },
@@ -138,6 +191,9 @@
     },
     "Force quit %@?" : {
       "comment" : "The title of the confirmation before force quitting an app."
+    },
+    "Full-screen windows cannot be moved" : {
+      "comment" : "Shown when a window command is used on a full-screen window."
     },
     "Give the quicklink a name." : {
       "comment" : "Shown in the quicklink editor while the name is empty."
@@ -154,8 +210,23 @@
     "Key verified" : {
       "comment" : "Quick AI settings: shown when Anthropic accepted the API key."
     },
+    "Last Third" : {
+      "comment" : "The window command that fills the right third of the screen."
+    },
+    "Last Two Thirds" : {
+      "comment" : "The window command that fills the right two thirds of the screen."
+    },
+    "Left Half" : {
+      "comment" : "The window command that fills the left half of the screen."
+    },
     "Light Mode" : {
       "comment" : "Another name the Toggle Appearance command is found by."
+    },
+    "Lock" : {
+      "comment" : "Another word the Lock Screen command is found by."
+    },
+    "Lock Screen" : {
+      "comment" : "The command that locks the screen."
     },
     "Log Out" : {
       "comment" : "The command that logs the user out."
@@ -163,14 +234,32 @@
     "Log out?" : {
       "comment" : "The title of the confirmation before logging out."
     },
+    "Maximize Window" : {
+      "comment" : "The window command that fills the screen, without making the window full screen."
+    },
     "Model unavailable to this key" : {
       "comment" : "Quick AI: shown when the API key may not use the chosen model."
+    },
+    "Move Window to Next Display" : {
+      "comment" : "The window command that moves a window to the next screen."
+    },
+    "Move Window to Previous Display" : {
+      "comment" : "The window command that moves a window to the previous screen."
     },
     "New Chat" : {
       "comment" : "Quick AI: the action that ends the conversation and starts an empty one."
     },
+    "No earlier position to restore" : {
+      "comment" : "Shown when Restore Window is used on a window that OpenRay has not moved."
+    },
     "No key saved" : {
       "comment" : "Quick AI settings: the state of the API key when none is stored."
+    },
+    "No other display" : {
+      "comment" : "Shown when a window is to be moved to another display and the Mac has only one."
+    },
+    "No window to move" : {
+      "comment" : "Shown when a window command finds no window it could move."
     },
     "Not allowed" : {
       "comment" : "The state of a permission OpenRay does not have."
@@ -247,8 +336,14 @@
     "Restart this Mac?" : {
       "comment" : "The title of the confirmation before restarting."
     },
+    "Restore Window" : {
+      "comment" : "The window command that puts a window back where it was before OpenRay moved it."
+    },
     "Results" : {
       "comment" : "The heading over the search results."
+    },
+    "Right Half" : {
+      "comment" : "The window command that fills the right half of the screen."
     },
     "Show Update" : {
       "comment" : "The action of the Update Available row. It opens the window of the update."
@@ -270,6 +365,9 @@
     },
     "Slower, with the best answers" : {
       "comment" : "Quick AI settings: what sets Claude Opus apart from the other models."
+    },
+    "Snap" : {
+      "comment" : "Another word the window commands are found by."
     },
     "Stop" : {
       "comment" : "Quick AI: the action that stops the answer that is arriving."
@@ -310,8 +408,20 @@
     "Thread too long, start a new one" : {
       "comment" : "Quick AI: shown when the conversation no longer fits the model."
     },
+    "Tile" : {
+      "comment" : "Another word the window commands are found by."
+    },
     "Toggle Appearance" : {
       "comment" : "The command that switches between the light and the dark appearance."
+    },
+    "Top Half" : {
+      "comment" : "The window command that fills the top half of the screen."
+    },
+    "Top Left Quarter" : {
+      "comment" : "The window command that fills the top left quarter of the screen."
+    },
+    "Top Right Quarter" : {
+      "comment" : "The window command that fills the top right quarter of the screen."
     },
     "Turn Off" : {
       "comment" : "Another name the Shut Down command is found by."
@@ -339,6 +449,9 @@
     },
     "Version %@" : {
       "comment" : "Under Update Available: the version that can be installed. The placeholder is a version number such as 0.2.0."
+    },
+    "Window" : {
+      "comment" : "The kind of a search result that is a window command, shown at the end of its row. Also a word every window command is found by."
     },
     "You're offline" : {
       "comment" : "Quick AI: shown when the Mac has no internet connection."

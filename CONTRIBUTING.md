@@ -42,8 +42,9 @@ other.
 A Debug build is signed ad hoc, which needs no account. The price is that
 every rebuild is a different app to macOS, so a permission granted to the
 build before no longer counts: System Settings shows OpenRay Dev switched on
-under Accessibility, and pasting still only copies. For the same reason the
-Keychain may ask again before it lets a rebuilt app read the API key.
+under Accessibility, and pasting still only copies and a window command still
+leads to the permission screen. For the same reason the Keychain may ask
+again before it lets a rebuilt app read the API key.
 
 To clear the stale grant and grant it again:
 
