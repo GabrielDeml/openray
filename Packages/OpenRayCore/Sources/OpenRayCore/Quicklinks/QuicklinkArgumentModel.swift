@@ -25,8 +25,7 @@ import Observation
 
         // The action reads the field when it runs, so one descriptor serves for whatever the
         // user goes on to type.
-        let title = QuicklinkSource.openTitle
-        let open = ActionDescriptor(id: ActionID(rawValue: "open"), title: title) {
+        let open = ActionDescriptor(id: ActionID(rawValue: "open"), title: ActionTitles.open) {
             [weak context] actionContext in
             let typed = context?.searchText ?? ""
             let argument = typed.trimmingCharacters(in: .whitespacesAndNewlines)

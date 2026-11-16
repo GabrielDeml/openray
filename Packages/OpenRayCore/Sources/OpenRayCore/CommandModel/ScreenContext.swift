@@ -20,7 +20,10 @@
     ///   the empty text it starts with and once for every change of the search text, also when
     ///   its rows stay the same. Rows for a text the field has moved on from are dropped, and
     ///   Return pressed after a change waits for the rows that answer it (§4.1.4).
-    func setSections(_ sections: [ResultSection], answering query: String)
+    /// - Parameter emptyMessage: What the list says in place of rows while this answer has
+    ///   none: "No snippets yet", or why the search could not be done. nil leaves the shell's
+    ///   own text, "No Results" for a search that found nothing.
+    func setSections(_ sections: [ResultSection], answering query: String, emptyMessage: String?)
     /// The actions of a custom screen, listed by ⌘K. Return runs the first of them unless the
     /// screen handles Return itself.
     func setScreenActions(_ actions: [ActionDescriptor])

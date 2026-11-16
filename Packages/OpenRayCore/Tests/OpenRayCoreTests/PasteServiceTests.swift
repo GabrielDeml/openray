@@ -8,6 +8,7 @@ import OpenRayCore
 @MainActor private final class FakePasteHost: PasteHost {
     enum Event: Equatable {
         case write([ClipRepresentation])
+        case read
         case hideLauncher
         case restoreFocus
         case post(KeyChord)
@@ -18,6 +19,8 @@ import OpenRayCore
 
     /// The change count the next write reports.
     var nextChangeCount = 7
+    /// The text on the pasteboard this host stands in for.
+    var pasteboardText: String?
     var isOpenRayActive = false
     var frontmostAppPID: pid_t?
     /// What bringing the previous app back answers, and which app is frontmost afterwards.
@@ -27,6 +30,11 @@ import OpenRayCore
     func writePasteboard(_ representations: [ClipRepresentation]) -> Int {
         events.append(.write(representations))
         return nextChangeCount
+    }
+
+    func readPasteboardText() -> String? {
+        events.append(.read)
+        return pasteboardText
     }
 
     func hideLauncher() {
@@ -247,6 +255,31 @@ import OpenRayCore
 
         let arrowPresses = host.postedChords.filter { $0 == leftArrow }
         #expect(arrowPresses.count == expectedPresses)
+    }
+
+    // MARK: Reading the clipboard
+
+    @Test func clipboardTextIsWhatThePasteboardHoldsAndNothingIsWritten() {
+        var writes: [PasteService.Write] = []
+        service.onWrite = { write in writes.append(write) }
+        host.pasteboardText = "from another app"
+
+        #expect(service.clipboardText() == "from another app")
+        #expect(host.events == [.read])
+        #expect(writes.isEmpty)
+    }
+
+    @Test func clipboardWithoutTextReadsAsNil() {
+        #expect(service.clipboardText() == nil)
+    }
+
+    @Test func copyAndPasteNeverReadTheClipboard() async {
+        host.pasteboardText = "from another app"
+
+        service.copy(hello)
+        _ = await service.paste(hello, into: editor)
+
+        #expect(!host.events.contains(.read))
     }
 
     // MARK: Copied outcome

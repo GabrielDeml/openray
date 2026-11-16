@@ -17,11 +17,20 @@ Window commands such as Left Half, Maximize Window and Move Window to Next
 Display move the front window of the app you are in, and Restore Window puts
 it back; they need the Accessibility permission too. So does Lock Screen,
 which presses ⌃⌘Q for you; whether macOS locks the screen for that has not
-been tried yet, and the command goes if it does not. Aliases, quicklinks,
-launch at login, the API key, the gap between tiled windows and updates are
-set up in its settings window, which also shows the version and the licences
-of what OpenRay is built with. A released build keeps itself up to date if you
-let it; a Debug build from source never looks for updates.
+been tried yet, and the command goes if it does not. Snippets are pieces of
+text you write once and paste from the launcher by name or keyword, or from
+the Search Snippets list, which also searches their text; a snippet can fill
+in the date, the time or what you last copied, and say where the caret goes.
+Search Files finds files and folders by name through Spotlight: Return opens
+one, and ⌘K has Show in Finder, Open With, a Quick Look preview, Copy Path
+and Move to Trash. These two are new and have only been run by their tests:
+no snippet has been pasted into a real app yet, and Search Files has searched
+a stand-in for Spotlight, never a real home folder. Aliases, quicklinks,
+snippets, launch at login, the API key, the gap between tiled windows, where
+Search Files looks and updates are set up in its settings window, which also
+shows the version and the licences of what OpenRay is built with. A released
+build keeps itself up to date if you let it; a Debug build from source never
+looks for updates.
 
 OpenRay sends no telemetry. [PRIVACY.md](PRIVACY.md) lists what it sends and
 what it stores.

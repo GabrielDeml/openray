@@ -331,13 +331,12 @@ public final class AppIndexSource: SearchSource {
     }
 
     private func openAction(for url: URL) -> ActionDescriptor {
-        let title = String(
-            localized: "Open", bundle: .module,
-            comment: "The action that opens the selected app or quicklink.")
         // A copy, so that the action holds on to the host and not to the whole source.
         let host = host
 
-        return ActionDescriptor(id: ActionID(rawValue: "open"), title: title) { context in
+        return ActionDescriptor(
+            id: ActionID(rawValue: "open"), title: ActionTitles.open
+        ) { context in
             // The launcher goes first (§4.1.6): an app that was not running can take seconds to
             // start, and its window must not come up behind the panel.
             context.closeLauncher()
@@ -347,13 +346,11 @@ public final class AppIndexSource: SearchSource {
     }
 
     private func showInFinderAction(for url: URL) -> ActionDescriptor {
-        let title = String(
-            localized: "Show in Finder", bundle: .module,
-            comment: "The action that reveals the selected app in a Finder window.")
         let host = host
 
         return ActionDescriptor(
-            id: ActionID(rawValue: "show-in-finder"), title: title, icon: .symbol("folder")
+            id: ActionID(rawValue: "show-in-finder"), title: ActionTitles.showInFinder,
+            icon: .symbol("folder")
         ) { context in
             context.closeLauncher()
             host.showInFinder(url)
@@ -386,12 +383,9 @@ public final class AppIndexSource: SearchSource {
     /// Copies the path the app was found under, which is the one the user sees in Finder. For
     /// Safari that is `/Applications/Safari.app` and not where the link leads.
     private func copyPathAction(for path: String) -> ActionDescriptor {
-        let title = String(
-            localized: "Copy Path", bundle: .module,
-            comment: "The action that copies the selected app's file path.")
-
-        return ActionDescriptor(
-            id: ActionID(rawValue: "copy-path"), title: title, icon: .symbol("doc.on.doc")
+        ActionDescriptor(
+            id: ActionID(rawValue: "copy-path"), title: ActionTitles.copyPath,
+            icon: .symbol("doc.on.doc")
         ) { context in
             context.copy(.text(path, cursorOffsetFromEnd: nil))
             return .copiedToClipboard

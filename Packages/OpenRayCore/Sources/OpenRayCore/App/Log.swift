@@ -15,6 +15,8 @@ public enum Log {
     public static let updates = Logger(subsystem: AppInfo.bundleIdentifier, category: "updates")
     /// Window commands that moved no window, and why. Window titles are never logged.
     public static let windows = Logger(subsystem: AppInfo.bundleIdentifier, category: "windows")
+    /// File search. The path of a file is always private.
+    public static let files = Logger(subsystem: AppInfo.bundleIdentifier, category: "files")
 }
 
 /// The app's single signposter and the names of its intervals, viewed in Instruments against the

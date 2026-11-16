@@ -18,6 +18,9 @@ final class LauncherScreenContext: ScreenContext {
     /// The search text `sections` answer. nil until the screen has set rows, which a custom
     /// screen never does.
     private(set) var answeredQuery: String?
+    /// What the screen wants the list to say while `sections` have no rows; nil for the
+    /// launcher's own text.
+    private(set) var emptyMessage: String?
     private(set) var screenActions: [ActionDescriptor] = []
 
     @ObservationIgnored private weak var model: LauncherModel?
@@ -51,12 +54,14 @@ final class LauncherScreenContext: ScreenContext {
         model?.screenDidChangeSearchBar(self)
     }
 
-    func setSections(_ sections: [ResultSection], answering query: String) {
+    func setSections(_ sections: [ResultSection], answering query: String, emptyMessage: String?) {
         // Rows for a text the field has moved on from are not drawn, as the reducer does not
         // take them. It is still told of them: that is how it learns that this screen answers
-        // its queries at all.
+        // its queries at all. The message goes the way of its rows, so that the list never
+        // shows the notice of another query.
         if query == searchText {
             self.sections = sections
+            self.emptyMessage = emptyMessage
             answeredQuery = query
         }
         model?.screen(self, didAnswer: query, with: sections)

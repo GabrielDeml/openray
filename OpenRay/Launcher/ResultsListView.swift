@@ -54,10 +54,12 @@ struct ResultsListView: View {
             }
         }
         .overlay {
-            if model.hasNoResults {
-                Text("No Results")
+            if let message = model.emptyListMessage {
+                Text(message)
                     .font(.system(size: 15, weight: .medium))
                     .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 40)
             }
         }
     }

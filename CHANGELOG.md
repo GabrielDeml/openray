@@ -53,3 +53,16 @@ The first public release.
   around windows and the room to leave for Stage Manager.
 - **Lock Screen.** Locks the screen from the launcher. It needs the
   Accessibility permission.
+- **Snippets.** Keep the text you type again and again and paste it from the
+  launcher by its name or keyword. Search Snippets lists them all and also
+  searches their text. A snippet can fill in the date, the time or what you
+  last copied, and say where the caret goes after pasting. You write them in
+  Settings › Snippets.
+- **File search.** Search Files finds files and folders by name through
+  Spotlight. Return opens the selected one, ⌘Return shows it in Finder, and
+  ⌘K has Open With, a Quick Look preview (⌘Y), Copy Path and Move to Trash.
+  It looks in your home folder unless you choose other folders, or the whole
+  Mac, in Settings › File Search. When a search in the launcher finds
+  nothing, Search Files is one of the rows that take what you typed. If
+  Spotlight indexing is off, Search Files says so, and Settings › File Search
+  has a slower search that works without it.

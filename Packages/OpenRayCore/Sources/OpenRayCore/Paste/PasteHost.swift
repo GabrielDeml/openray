@@ -2,14 +2,18 @@ import Foundation
 
 /// What the paste path asks of the Mac and of OpenRay's own windows (docs/DESIGN.md §4.1.7).
 ///
-/// The app target's `MacPasteHost` is the implementation, and the only code that writes the
-/// general pasteboard or posts a key event. `PasteService` decides what happens and in which
-/// order; tests run it against a fake of this.
+/// The app target's `MacPasteHost` is the implementation, and the only code that reads or
+/// writes the general pasteboard or posts a key event. `PasteService` decides what happens and
+/// in which order; tests run it against a fake of this.
 @MainActor public protocol PasteHost: AnyObject {
     /// Replaces what is on the general pasteboard with these representations of one thing.
     ///
     /// - Returns: The pasteboard's change count for this write.
     func writePasteboard(_ representations: [ClipRepresentation]) -> Int
+
+    /// The plain text on the general pasteboard, or nil when it holds none. macOS may ask the
+    /// user before it answers.
+    func readPasteboardText() -> String?
 
     /// Hides the launcher. Nothing happens when it is hidden already.
     func hideLauncher()

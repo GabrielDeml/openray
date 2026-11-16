@@ -26,9 +26,15 @@ import Observation
     /// One entry of the fallback list.
     public struct FallbackRow: Identifiable, Equatable, Sendable {
         public var id: ItemID
-        /// nil for an entry whose item no feature provides yet, such as "Search Files" before
-        /// file search exists. The entry keeps its place for when it does.
+        /// nil for an entry whose item no feature provides. The entry keeps its place for
+        /// when one does.
         public var title: String?
+    }
+
+    /// Something the fallback list does not have and could.
+    public struct FallbackCandidate: Identifiable, Equatable, Sendable {
+        public var id: ItemID
+        public var title: String
     }
 
     public var scope = Scope.commands
@@ -196,14 +202,25 @@ import Observation
         return rows
     }
 
-    /// The quicklinks that could be added to the fallback list: those that take the query as
-    /// their argument and are not on the list yet.
-    public var fallbackCandidates: [Quicklink] {
-        overrides.quicklinks.filter { quicklink in
+    /// What could be added to the fallback list: the quicklinks that take the query as their
+    /// argument, and "Search Files". Without the command here, removing it from the list
+    /// would be for good, because nothing else could put it back.
+    public var fallbackCandidates: [FallbackCandidate] {
+        let listed = overrides.fallbackOrder
+
+        var candidates: [FallbackCandidate] = []
+        for quicklink in overrides.quicklinks {
             let takesTheQuery = QuicklinkTemplate.takesArgument(quicklink.template)
-            let isListed = overrides.fallbackOrder.contains(quicklink.itemID)
-            return takesTheQuery && !isListed
+            if takesTheQuery && !listed.contains(quicklink.itemID) {
+                candidates.append(FallbackCandidate(id: quicklink.itemID, title: quicklink.name))
+            }
         }
+
+        let searchFiles = FileSearchSource.searchItemID
+        if !listed.contains(searchFiles), let title = title(of: searchFiles) {
+            candidates.append(FallbackCandidate(id: searchFiles, title: title))
+        }
+        return candidates
     }
 
     // The three changes below name the entries they are about by ID and are applied to the

@@ -297,10 +297,49 @@ import OpenRayCore
         #expect(intent(VirtualKey.escape, [], "\u{1B}", in: repeating) == .escape)
     }
 
-    @Test func heldReturnElsewhereIsStillReturn() {
+    // The Return that opened a list is often still held when its rows are there, and its
+    // repeat would run the first of them.
+    @Test func heldReturnActsOnlyOnce() {
         let repeating = KeyRouter.Context(queryIsEmpty: false, depth: 0, keyIsRepeating: true)
+        let repeatingInAList = KeyRouter.Context(queryIsEmpty: true, depth: 1, keyIsRepeating: true)
 
-        #expect(intent(VirtualKey.returnKey, [], "\r", in: repeating) == .performPrimary)
+        #expect(intent(VirtualKey.returnKey, [], "\r", in: repeating) == nil)
+        #expect(intent(VirtualKey.keypadEnter, [], "\u{03}", in: repeating) == nil)
+        #expect(intent(VirtualKey.returnKey, [], "\r", in: repeatingInAList) == nil)
+        // The field editor does not get it either: it would end editing.
+        #expect(swallows(VirtualKey.returnKey, [], "\r", in: repeating))
+        #expect(swallows(VirtualKey.keypadEnter, [], "\u{03}", in: repeating))
+
+        // A press of its own is Return as ever, and so is a held ⌘↩ of an item.
+        #expect(intent(VirtualKey.returnKey, [], "\r") == .performPrimary)
+        #expect(!swallows(VirtualKey.returnKey, [], "\r"))
+        let withShortcut = KeyRouter.Context(
+            queryIsEmpty: false, depth: 0, selectedItemShortcuts: [commandReturn: reveal],
+            keyIsRepeating: true)
+        #expect(
+            intent(VirtualKey.returnKey, [.command], "\r", in: withShortcut)
+                == .performAction(reveal))
+    }
+
+    // ⌘1 held on "Search Snippets" would otherwise paste the first snippet of the list it
+    // opened.
+    @Test func heldCommandDigitActsOnlyOnce() {
+        let repeating = KeyRouter.Context(queryIsEmpty: false, depth: 0, keyIsRepeating: true)
+        let firstDigit = VirtualKey.ansiDigits[0]
+
+        #expect(intent(firstDigit, [.command], "1", in: repeating) == nil)
+        // Unhandled, it would go on to AppKit as a key equivalent nobody has.
+        #expect(swallows(firstDigit, [.command], "1", in: repeating))
+
+        #expect(intent(firstDigit, [.command], "1") == .activateIndex(1))
+    }
+
+    @Test func heldReturnOfAnInputMethodStaysWithIt() {
+        let composing = KeyRouter.Context(
+            queryIsEmpty: false, depth: 0, hasMarkedText: true, keyIsRepeating: true)
+
+        #expect(intent(VirtualKey.returnKey, [], "\r", in: composing) == nil)
+        #expect(!swallows(VirtualKey.returnKey, [], "\r", in: composing))
     }
 
     @Test func confirmationKeepsEveryOtherKeyFromTheLauncherAndFromTheField() {

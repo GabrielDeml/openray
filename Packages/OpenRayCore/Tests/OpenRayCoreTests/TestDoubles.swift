@@ -6,6 +6,15 @@ import OpenRayCore
 // drives a screen. They record what they were asked to do and do nothing else.
 
 @MainActor final class FakeActionContext: ActionContext {
+    /// What an action did that touches the launcher or the clipboard, for a test of the order
+    /// it did it in.
+    enum Call: Equatable {
+        case closeLauncher
+        case readClipboard
+        case copy
+        case paste
+    }
+
     var previousApp: AppRef?
     var query: String
     /// What `confirm` answers.
@@ -13,18 +22,23 @@ import OpenRayCore
 
     /// What `paste` answers.
     var pasteResult = PasteResult.pasted
+    /// What `clipboardText` answers: the text on a clipboard that exists only here.
+    var clipboard: String?
 
+    private(set) var calls: [Call] = []
     private(set) var closeLauncherCount = 0
     private(set) var hudMessages: [String] = []
     private(set) var confirmations: [Confirmation] = []
     private(set) var copied: [PasteContent] = []
     private(set) var pasted: [PasteContent] = []
+    private(set) var clipboardReadCount = 0
 
     init(query: String = "") {
         self.query = query
     }
 
     func closeLauncher() {
+        calls.append(.closeLauncher)
         closeLauncherCount += 1
     }
 
@@ -38,22 +52,57 @@ import OpenRayCore
     }
 
     func copy(_ content: PasteContent) {
+        calls.append(.copy)
         copied.append(content)
     }
 
     func paste(_ content: PasteContent) async -> PasteResult {
+        calls.append(.paste)
         pasted.append(content)
         return pasteResult
+    }
+
+    func clipboardText() async -> String? {
+        calls.append(.readClipboard)
+        clipboardReadCount += 1
+        return clipboard
     }
 }
 
 @MainActor final class FakeScreenContext: ScreenContext {
+    /// One call of `setSections`.
+    struct Answer {
+        var query: String
+        var sections: [ResultSection]
+        var emptyMessage: String?
+
+        /// The items of every section, in the order the list shows them.
+        var itemIDs: [ItemID] {
+            var ids: [ItemID] = []
+            for section in sections {
+                for row in section.rows {
+                    ids.append(row.item.id)
+                }
+            }
+            return ids
+        }
+    }
+
     let request: ScreenRequest
     var searchText = ""
     var isOnScreen = true
+    /// Whether the screen may change the search field. The shell takes a text only from the
+    /// screen on top, so a screen that is still being built, or lies under another, is ignored.
+    var takesSearchText = true
     let fakeActionContext = FakeActionContext()
+    /// The screen's model, kept until the screen is popped, as `ScreenSpec` keeps it in the
+    /// app. A model's own tasks hold it weakly, so without this a test that only watches the
+    /// answers would have to keep the model alive itself.
+    var model: AnyObject?
 
     private(set) var screenActions: [ActionDescriptor] = []
+    /// Every answer of a list screen, in the order it gave them.
+    private(set) var answers: [Answer] = []
 
     private var searchTextContinuations: [AsyncStream<String>.Continuation] = []
 
@@ -77,15 +126,37 @@ import OpenRayCore
         }
     }
 
-    func setSearchText(_ text: String) {
-        searchText = text
+    /// Types the text and waits for an answer to it that came after the typing. A list
+    /// screen answers from a task of its own, a moment later.
+    func typeAndWaitForAnswer(_ text: String) async {
+        let answersBefore = answers.count
+        type(text)
+        while answers.count == answersBefore || answers.last?.query != text {
+            await Task.yield()
+        }
     }
 
-    // The screens under test are custom screens: they set actions, and neither rows nor the
-    // search bar.
+    /// The screen was popped: the streams of the search text end, and the model is let go.
+    func close() {
+        for continuation in searchTextContinuations {
+            continuation.finish()
+        }
+        searchTextContinuations = []
+        model = nil
+    }
+
+    func setSearchText(_ text: String) {
+        if !takesSearchText { return }
+        // The text a screen sets comes back to it like typed text.
+        type(text)
+    }
+
+    // No screen under test changes the search bar.
     func setSearchBarMode(_ mode: SearchBarMode) {}
 
-    func setSections(_ sections: [ResultSection], answering query: String) {}
+    func setSections(_ sections: [ResultSection], answering query: String, emptyMessage: String?) {
+        answers.append(Answer(query: query, sections: sections, emptyMessage: emptyMessage))
+    }
 
     func setScreenActions(_ actions: [ActionDescriptor]) {
         screenActions = actions

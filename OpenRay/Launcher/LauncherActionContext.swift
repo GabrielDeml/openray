@@ -41,4 +41,8 @@ final class LauncherActionContext: ActionContext {
     func paste(_ content: PasteContent) async -> PasteResult {
         await pasteService.paste(content, into: previousApp)
     }
+
+    func clipboardText() async -> String? {
+        pasteService.clipboardText()
+    }
 }

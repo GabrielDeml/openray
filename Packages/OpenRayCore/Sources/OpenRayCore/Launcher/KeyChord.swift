@@ -56,6 +56,7 @@ public enum VirtualKey {
 
     public static let ansiA: UInt16 = 0x00  // kVK_ANSI_A
     public static let ansiC: UInt16 = 0x08  // kVK_ANSI_C
+    public static let ansiE: UInt16 = 0x0E  // kVK_ANSI_E
     public static let ansiH: UInt16 = 0x04  // kVK_ANSI_H
     public static let ansiK: UInt16 = 0x28  // kVK_ANSI_K
     public static let ansiM: UInt16 = 0x2E  // kVK_ANSI_M
@@ -66,6 +67,7 @@ public enum VirtualKey {
     public static let ansiV: UInt16 = 0x09  // kVK_ANSI_V
     public static let ansiW: UInt16 = 0x0D  // kVK_ANSI_W
     public static let ansiX: UInt16 = 0x07  // kVK_ANSI_X
+    public static let ansiY: UInt16 = 0x10  // kVK_ANSI_Y
     public static let ansiZ: UInt16 = 0x06  // kVK_ANSI_Z
     public static let ansiLeftBracket: UInt16 = 0x21  // kVK_ANSI_LeftBracket
     public static let ansiComma: UInt16 = 0x2B  // kVK_ANSI_Comma

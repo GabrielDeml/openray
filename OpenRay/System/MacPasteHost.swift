@@ -5,7 +5,8 @@ import OpenRayCore
 /// windows that have to get out of the way (docs/DESIGN.md §4.1.7). `PasteService` in Core
 /// decides what happens when; this only does it.
 ///
-/// Nothing else in OpenRay writes the general pasteboard or posts a key event.
+/// Nothing else in OpenRay reads or writes the general pasteboard or posts a key event, apart
+/// from the probe of Debug builds, which is there to find out what a read costs (§4.5).
 final class MacPasteHost: PasteHost {
     /// Set by `AppDelegate` once the launcher exists; the launcher needs the paste service,
     /// which needs this host, first.
@@ -39,6 +40,12 @@ final class MacPasteHost: PasteHost {
             }
         }
         return changeCount
+    }
+
+    /// The one read of the pasteboard in OpenRay, for a snippet with `{clipboard}` (§4.9).
+    /// macOS may show its paste alert for it and hold the call until the user has answered.
+    func readPasteboardText() -> String? {
+        NSPasteboard.general.string(forType: .string)
     }
 
     func hideLauncher() {

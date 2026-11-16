@@ -69,6 +69,7 @@ import OpenRayCore
         func confirm(_ confirmation: OpenRayCore.Confirmation) async -> Bool { true }
         func copy(_ content: PasteContent) { copied.append(content) }
         func paste(_ content: PasteContent) async -> PasteResult { .copiedOnly(.noAccessibility) }
+        func clipboardText() async -> String? { nil }
     }
 
     @Test func actionReachesTheShellThroughItsContext() async throws {

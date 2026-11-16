@@ -7,13 +7,20 @@ steps of each release, and the checks that need a person at a Mac.
 Milestone 6 was built without an Apple Developer account, without any secret and
 without launching the app. The release job in
 [.github/workflows/release.yml](.github/workflows/release.yml) has therefore
-never run, CI has never run on GitHub's `macos-26` runner, and nothing that
-milestone 6 put on screen has been looked at. This file is the list of what is
-left. How the pieces work is in section 6 of [docs/DESIGN.md](docs/DESIGN.md).
+never run, and the checks of section 4 have not been worked through. The
+owner ran a Debug build of milestone 6 on 2026-11-15 and reported that it
+works, Quick AI with a real key included. That was a try-out and not this
+list. This file is the list of what is left. How the pieces work is in section 6 of
+[docs/DESIGN.md](docs/DESIGN.md).
 
-Milestone 7 has added the window commands and Lock Screen so far, built the
-same way: no window was moved and the screen was never locked. Their checks
-are the first block of section 4.
+Milestone 7 has added the window commands, Lock Screen, snippets and file
+search, built the same way: no window was moved, the screen was never locked,
+no snippet was pasted, the clipboard was never read and no real folder was
+searched. CI has built and tested the window commands and Lock Screen;
+snippets and file search get their first run with the pull request that adds
+them. Their checks are under "New in
+milestone 7" in section 4: a block for the window commands and Lock Screen,
+one for snippets and one for file search.
 
 Work through sections 1 and 2 once. Sections 3 and 4 are for every release.
 
@@ -56,11 +63,25 @@ old identifier.
   cask all say `https://github.com/GabrielDeml/openray`. They are right as
   long as the repository stays where it is. The release job checks the cask's
   `url` against the repository it runs in.
-- [ ] **What the first release carries.** `CHANGELOG.md` has window management
-  and Lock Screen under Unreleased, beside everything of v0.1. The roadmap
-  has each feature of milestone 7 ship as a release of its own: move the two
-  entries to the version they ship in, or leave them where they are if v0.1
-  is to have them.
+- [ ] **What the first release carries.** `CHANGELOG.md` has window
+  management, Lock Screen, snippets and file search under Unreleased, beside
+  everything of v0.1. The roadmap has each feature of milestone 7 ship as a
+  release of its own: move the four entries to the versions they ship in, or
+  leave them where they are if v0.1 is to have them. The status paragraph of
+  `README.md` names all four as well.
+- [ ] **The snippet table** (item 33). The first release that has snippets
+  fixes it, because an installed copy runs the migration `m7_snippets` once
+  and never again. Default: an integer key, `row_id`, that the search index
+  hangs on, and the snippet's UUID in a `UNIQUE` column beside it (design
+  §4.3.2 has the reasons). The index and its tokenizer can be rebuilt by a
+  later migration. The table's columns cannot change, because a database
+  that fails to migrate is still read for its snippets. To change any of it,
+  edit the migration in
+  `Packages/OpenRayCore/Sources/OpenRayCore/Storage/AppDatabase.swift` before
+  that release. The same release fixes the IDs that picks and aliases are
+  stored under (`snippet:<uuid>`, `file:<path>`,
+  `command:files.openWith.<app path>`) and the shape of the `files.scope`
+  preference (design §4.2.1, §4.3.4).
 - [ ] **Lock Screen: keep it or take it out** (item 8). It ships only if the
   check in section 4 shows that it locks the screen. If it does not, remove
   the command (`lockScreen` in `SystemCommandSource`, `SystemControl` and
@@ -74,27 +95,29 @@ In this order. Later steps need what earlier ones make.
 
 ### Get CI green
 
-`.github/workflows/ci.yml` has never run for milestones 1 to 7: everything was
-built with a newer Xcode than the Xcode 26 and Swift 6.2 of the `macos-26`
-runner.
+`.github/workflows/ci.yml` passed on 2026-11-15 for milestones 1 to 6 and
+for the window commands and Lock Screen, and both are on `main`. The runner
+had Xcode 26.6 with Swift 6.3.3, older than what everything was written with.
+Two runs before that stopped in "Test core package", both on the same test:
+first on a `Task` whose result type the runner's compiler could not infer,
+then on a local constant named like the helper that the closure above it
+calls. The newer compiler accepts both.
 
-- [ ] Open a pull request, or push to `main`, and read the run: CI runs on
-  those two and on nothing else. The four things most likely to fail there
-  and nowhere else:
-  1. Swift 6.2 compiling `OpenRay/System/SparkleUpdater.swift`, which conforms
-     to `SPUStandardUserDriverDelegate` with `@preconcurrency` (design §6.4).
-     Only a newer compiler has seen it.
-  2. "Run core benchmarks", which builds the package in release mode with
-     `-Xswiftc -enable-testing`. This step cannot fail the job; a failure
-     shows as a warning on the run. Read its log either way.
-  3. "Build app (Release)", the configuration the release job archives, and
-     with it Xcode 26 merging the partial `Config/Info.plist` into the
-     Info.plist it generates.
-  4. Swift 6.2 compiling the window commands of milestone 7:
-     `OpenRay/System/AXWindowController.swift`, an actor on a dispatch queue
-     of its own that holds `AXUIElement`s, and the typed throws
-     (`throws(WindowError)`) of `Windows/` in the package. Only a newer
-     compiler has seen them.
+- [x] A green run with everything up to the window commands. It settled the
+  four things that were most likely to fail there and nowhere else:
+  `SparkleUpdater.swift` conforming to `SPUStandardUserDriverDelegate` with
+  `@preconcurrency` (design §6.4); "Run core benchmarks" in release mode with
+  `-Xswiftc -enable-testing`; "Build app (Release)" with Xcode 26 merging the
+  partial `Config/Info.plist`; and `AXWindowController.swift` with the typed
+  throws of `Windows/`.
+- [ ] Read the first run that has snippets and file search. The likeliest
+  place for it to fail is `Files/SpotlightSearcher.swift` in the package: an
+  actor on a dispatch queue of its own that calls `MDQuery` and uses the
+  `kMDItem…` and `kMDQueryScope…` constants of CoreServices. If the compiler
+  refuses the constants, string literals with the same text do the same,
+  which is what `PermissionCenter` does for `kAXTrustedCheckOptionPrompt`.
+  `FolderWalk` is `@concurrent`, and the tasks of the new models are closures
+  handed to `Task`, the kind of line the first failed run stopped on.
 - [ ] `shellcheck Scripts/*.sh` and `actionlint` once. Neither was installed
   where the scripts and the workflows were written; they were only parsed
   (`bash -n`, and as YAML).
@@ -399,10 +422,10 @@ answer.
 
 ### New in milestone 7
 
-Window management and Lock Screen. File search and snippets are not built yet
-and have no checks here. For all of these OpenRay needs the Accessibility
-permission, and the window commands act on the front window of the app the
-launcher was opened over.
+Three blocks: window management with Lock Screen, then snippets, then file
+search. For the window commands and Lock Screen OpenRay needs the
+Accessibility permission, and the window commands act on the front window of
+the app the launcher was opened over.
 
 - [ ] First use without the permission [15]. From a state where
   Accessibility is not granted, run Left Half and then Lock Screen: each
@@ -495,6 +518,130 @@ launcher was opened over.
   on a Mac where that shortcut was given to something else it does that
   other thing. If it does not lock, Lock Screen goes: see
   "Lock Screen: keep it or take it out" in section 1.
+
+Snippets are the first feature with a list screen (design §4.1.5, §4.9), so
+these are also the first checks of that screen. Nothing here was ever on
+screen, and no snippet was ever pasted.
+
+- [ ] Settings › Snippets: how the pane and the editor look. Make a snippet
+  with a name, a keyword and a few lines; the preview follows what is typed.
+  A snippet without a name or text, and one with `{cursor}` twice, cannot be
+  saved and the editor says why. A second snippet with the same keyword is
+  refused with "Another snippet already has the keyword …" and the editor
+  stays open on what was typed. Delete asks first.
+- [ ] Root search finds a snippet by its name and by its keyword. Return
+  pastes it into TextEdit, ⌘Return copies it, ⌘E opens the editor on it and
+  ⌃X asks and then deletes it. "Create Snippet" opens the editor on a new
+  one. Does the editor's sheet come up when Settings was closed before, and
+  when it was open on another pane?
+- [ ] An open editor keeps what was typed. Type into the editor, then run
+  "Add Alias…" on some item from the launcher, which shows another pane,
+  and go back to Snippets: the sheet is there again with the text. Type
+  into the editor and run "Create Snippet" or "Edit Snippet…" on another
+  snippet from the launcher: Settings comes up with the editor as it was.
+  Does typing in the editor feel as quick as in any text field?
+- [ ] Search Snippets, the first list screen [28]: the rows, and the detail
+  pane beside them with the name, the keyword and the text of the selected
+  snippet. Arrows, Return, ⌘1 to ⌘9 and ⌘K work as in root search, and Esc
+  leads back to it. Three letters from the middle of a word in a snippet's
+  text find it, and so do one and two letters. Return pressed right after
+  the last letter pastes a snippet of the new rows, never one of the old.
+- [ ] A held Return acts once (design §4.1.3). With "Delay Until Repeat" in
+  System Settings › Keyboard at its shortest, select "Search Snippets" in
+  root search and hold Return for a second: the list opens and nothing is
+  pasted. The same on the "Search Files" row under a search that finds
+  nothing: the list opens and no file does. In root search a held Return
+  on an app opens it once, and the search field never loses its caret.
+  Then the same with ⌘1 held on the "Search Snippets" row: nothing is
+  pasted, and nothing beeps while the key is down.
+- [ ] What an empty list says: "No snippets yet. Add one with Create
+  Snippet." while there are none, whatever is typed, and "No Results" for a
+  text that finds nothing among the ones there are. Is the text centred in
+  the list, and easy to read?
+- [ ] The list follows the store. Delete a snippet from the list: the row
+  goes and the selection stays in place. Edit one in Settings while the
+  list is open: the list follows.
+- [ ] ⌘K in Search Snippets with no row selected, which is the case while
+  the list is empty: the action panel opens and says "No Matching Actions".
+  Should it stay shut instead (design §4.1.5)?
+- [ ] `{cursor}` [30]. Paste "Dear {cursor}, thanks 👨‍👩‍👧‍👦" into TextEdit,
+  Terminal, a browser's text field and an Electron app: is the caret after
+  "Dear " in each, or do the arrow presses come too early, or count the
+  emoji as more than one step? Try a snippet of two lines with the cursor
+  on the first as well.
+- [ ] `{clipboard}` [6]. Copy a few words in another app and paste a snippet
+  with `{clipboard}`. Does macOS show its paste alert, and where: over the
+  app, now that the launcher has closed? If it does, does the snippet still
+  arrive in the app, or does the HUD say "Copied — press ⌘V"? Copy an image
+  and paste the same snippet: the placeholder leaves nothing. A snippet
+  without the placeholder must never bring the alert up, and neither must
+  the preview in Settings.
+- [ ] Without the Accessibility permission, Return on a snippet copies it
+  and the HUD says to press ⌘V.
+- [ ] `{date}`, `{time}` and `{datetime}` on a Mac set to another region and
+  to 24-hour time: do they read the way the menu-bar clock does? Change the
+  time zone and the region while OpenRay runs: the next `{time}` follows
+  without a relaunch. Braces that are no placeholder, such as
+  `${{ secrets.TOKEN }}`, arrive as typed.
+
+File search was built without one query of a real home folder (design §4.8),
+so everything about real files is still to be seen. The number in brackets is
+item 17.
+
+- [ ] Search Files, by its name, by "Find File" and with Tab, and from the
+  "Use … with" rows of a search that found nothing: the last puts what was
+  typed into the field of the screen. The empty field says "Type to search
+  for files by name".
+- [ ] Results on your own files [17]. Do the files you mean come first? Type
+  the exact start of the name of a file you have not opened for months: is
+  it there, or did Spotlight's caps leave it out? Try the same with a word
+  from the middle of a long-unused name, and with two words in the other
+  order than the name has them. Do files in `~/Library`, in `node_modules`
+  and in `.git` stay at the bottom, while a document in iCloud Drive or in
+  a Dropbox or OneDrive folder ranks like one in Documents? Do files in the
+  Trash show up at all? Does a `?` in the text act as a wildcard? Open one
+  file from the list a few times: it should move up for that text.
+- [ ] Typing fast and slowly: the list follows a moment after the typing
+  stops, and Return pressed right after the last letter opens the file of
+  the new results, never one of the old. A text that finds nothing says "No
+  files found".
+- [ ] The row actions: Return opens, ⌘Return shows the file in Finder, ⌘⇧C
+  copies the path, ⌃X asks, naming the file, and then moves it to the
+  Trash, and the row goes without the list jumping. Search again a moment
+  later: does the trashed file come back for a while?
+- [ ] Open With: the list names the apps with the default first and marked
+  "Default", typing narrows it, Return opens the file with the app chosen,
+  and Esc leads back to the files. A file that no app opens gets "No app
+  can open this file".
+- [ ] The detail pane and ⌘Y [17]: the icon, the folder, the kind and the
+  date. Does the Quick Look preview draw inside the launcher, for an image,
+  a PDF, a text file and a folder, does it follow the selection, and does
+  ⌘Y bring the facts back? The keyboard should stay with the search field
+  throughout.
+- [ ] Files & Folders prompts [17], on a fresh user account: select, preview
+  and trash a file in Desktop, in Documents and in Downloads. Does macOS
+  ask, with the text from `Config/Shared.xcconfig`, and does the prompt come
+  up over the launcher or under it? While the prompt of Move to Trash is
+  up, does the launcher still react: can you type, and does Esc close it?
+  After "Don't Allow", Move to Trash should fail with a message in the HUD
+  and the row should stay. Try a file on a USB stick with the scope set to
+  everywhere.
+- [ ] Settings › File Search: how the pane looks, the three scopes, adding
+  and removing a folder, and the list of folders coming back after another
+  scope was chosen. With chosen folders, only files in them are found.
+- [ ] Spotlight off, on a Mac or a volume you can spare: after
+  `sudo mdutil -i off /` Search Files should show the notice, three lines
+  with the command to turn indexing on. Do they fit the list? Switch on the
+  slower search in the pane: the results come under "Found without
+  Spotlight". On a fresh account, does macOS ask about Desktop, Documents
+  and Downloads when the slower search first runs [17], and where? Turn
+  indexing back on; the notice goes within five minutes.
+- [ ] Settings › Commands › Fallback: "Search Files" has its name and a
+  Remove button, and after removing it the Add menu offers it again. In
+  Settings › Commands the command can be given an alias and switched off
+  like any other.
+- [ ] VoiceOver on the two lists: the rows are read as in root search. What
+  does it make of the detail panes and of the Quick Look preview?
 
 ### New in milestone 6
 
@@ -687,7 +834,9 @@ In short:
 - [ ] **The pasteboard experiment** (design §4.5, and item 6 of §8). Clipboard
   history, its settings pane and onboarding step 4 are not built and do not
   start before this has been run on macOS 26 and 27 with the probe of a Debug
-  build. It also settles item 29.
+  build. It also settles item 29. A snippet with `{clipboard}` does not wait
+  for it: it reads the clipboard once when it is pasted, and its check is in
+  section 4.
 - [ ] **homebrew-cask** (item 25). Submitting the cask to Homebrew itself
   needs a repository that is older and better known than a new one can be.
   Until then the tap is the way to install.
@@ -695,11 +844,6 @@ In short:
   milestone 2. Tuning them needs recorded sessions, and there are none.
 - [ ] **UI tests in CI** (item 20), and the lint step for `swift format`,
   which CI does not run yet (design §5.4).
-- [ ] **File search and snippets**, the two features of milestone 7 that are
-  not built. Design §8, item 33 lists what has to be settled in the design
-  before either is started.
 - [ ] UNVERIFIED notes in the design that belong to features not built yet:
-  file previews and Files & Folders prompts (file search), the arrow presses
-  after a pasted snippet [30], Apple events from a script's `osascript`
-  (milestone 8), and whether pasteboard access has a usage-description key
-  (clipboard history).
+  Apple events from a script's `osascript` (milestone 8), and whether
+  pasteboard access has a usage-description key (clipboard history).

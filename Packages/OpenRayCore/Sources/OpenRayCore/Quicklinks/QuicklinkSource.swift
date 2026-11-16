@@ -75,7 +75,7 @@ public final class QuicklinkSource: SearchSource {
         if QuicklinkTemplate.takesArgument(quicklink.template) {
             let argumentScreen = Self.argumentScreenRequest(for: quicklink)
             let enterArgument = ActionDescriptor(
-                id: ActionID(rawValue: "open"), title: Self.openTitle
+                id: ActionID(rawValue: "open"), title: ActionTitles.open
             ) { _ in
                 .push(argumentScreen)
             }
@@ -139,12 +139,6 @@ public final class QuicklinkSource: SearchSource {
 
     // MARK: Building items
 
-    static var openTitle: String {
-        String(
-            localized: "Open", bundle: .module,
-            comment: "The action that opens the selected app or quicklink.")
-    }
-
     private func searchItem(
         for quicklink: Quicklink, subtitle: String?, action: ActionDescriptor
     ) -> SearchItem {
@@ -169,7 +163,9 @@ public final class QuicklinkSource: SearchSource {
 
     private func openAction(for quicklink: Quicklink, argument: String) -> ActionDescriptor {
         let opener = opener
-        return ActionDescriptor(id: ActionID(rawValue: "open"), title: Self.openTitle) { context in
+        return ActionDescriptor(
+            id: ActionID(rawValue: "open"), title: ActionTitles.open
+        ) { context in
             try await Self.open(quicklink, argument: argument, opener: opener, context: context)
             return .closeLauncher
         }

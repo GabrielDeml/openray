@@ -65,6 +65,11 @@ struct ScreenSpec {
     var title: String
     var searchBar: SearchBarMode
     var body: Body
+    /// The screen's Core model, for a screen with no view to hold it. A custom screen's view
+    /// keeps its model alive; a list screen is drawn by the shell and may have no view of its
+    /// own, so the spec keeps the model instead. `LauncherModel` keeps the spec for as long as
+    /// the screen's frame is on the stack, and the model lives exactly that long.
+    var model: AnyObject? = nil
 
     enum Body {
         /// The shell draws the rows the screen sets through `ScreenContext.setSections` and owns
