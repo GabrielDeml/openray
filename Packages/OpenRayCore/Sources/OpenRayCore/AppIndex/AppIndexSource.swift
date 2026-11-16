@@ -19,6 +19,11 @@ public final class AppIndexSource: SearchSource {
         URL(filePath: "/System/Library/CoreServices/Finder.app", directoryHint: .isDirectory),
     ]
 
+    /// How long the changes in a root are collected before the root is read again. Installing
+    /// one app changes thousands of files, and reading the folder once for all of them is
+    /// enough.
+    private static let watcherLatency: CFTimeInterval = 1
+
     /// What makes the source read its roots again.
     private enum RescanRequest: Sendable {
         /// Something changed in this root.
@@ -166,8 +171,8 @@ public final class AppIndexSource: SearchSource {
     }
 
     /// One watcher for each root that can change while the app runs.
-    private func startWatchers(for roots: [URL]) -> [AppFolderWatcher] {
-        var watchers: [AppFolderWatcher] = []
+    private func startWatchers(for roots: [URL]) -> [FolderWatcher] {
+        var watchers: [FolderWatcher] = []
         for root in roots {
             let path = root.path(percentEncoded: false)
             // The system's own apps are on the sealed volume, which only an OS update changes,
@@ -177,7 +182,7 @@ public final class AppIndexSource: SearchSource {
             // the folder once it is there.
             if !FileManager.default.fileExists(atPath: path) { continue }
 
-            let watcher = AppFolderWatcher(folder: root) { [self] in
+            let watcher = FolderWatcher(folder: root, latency: Self.watcherLatency) { [self] in
                 requestRescan(.root(root))
             }
             guard let watcher else {
@@ -189,7 +194,7 @@ public final class AppIndexSource: SearchSource {
         return watchers
     }
 
-    private func stop(_ watchers: [AppFolderWatcher]) {
+    private func stop(_ watchers: [FolderWatcher]) {
         for watcher in watchers {
             watcher.stop()
         }

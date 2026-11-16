@@ -7,6 +7,8 @@ public enum IconSource: Sendable, Hashable {
     case emoji(String)
     /// An image in the app's asset catalog.
     case bundled(String)
+    /// The image file at `path` itself, such as the picture a script names as its icon.
+    case image(path: String)
 }
 
 /// Another name an item can be found by.

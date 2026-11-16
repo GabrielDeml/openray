@@ -17,6 +17,9 @@ public enum Log {
     public static let windows = Logger(subsystem: AppInfo.bundleIdentifier, category: "windows")
     /// File search. The path of a file is always private.
     public static let files = Logger(subsystem: AppInfo.bundleIdentifier, category: "files")
+    /// Script commands. The path of a script is always private. Its arguments, what it prints
+    /// and the value of every environment variable are never logged.
+    public static let scripts = Logger(subsystem: AppInfo.bundleIdentifier, category: "scripts")
 }
 
 /// The app's single signposter and the names of its intervals, viewed in Instruments against the

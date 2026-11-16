@@ -310,15 +310,27 @@ import OpenRayCore
         #expect(swallows(VirtualKey.returnKey, [], "\r", in: repeating))
         #expect(swallows(VirtualKey.keypadEnter, [], "\u{03}", in: repeating))
 
-        // A press of its own is Return as ever, and so is a held ⌘↩ of an item.
+        // A press of its own is Return as ever.
         #expect(intent(VirtualKey.returnKey, [], "\r") == .performPrimary)
         #expect(!swallows(VirtualKey.returnKey, [], "\r"))
-        let withShortcut = KeyRouter.Context(
-            queryIsEmpty: false, depth: 0, selectedItemShortcuts: [commandReturn: reveal],
-            keyIsRepeating: true)
+    }
+
+    // ⌘R held on the output of a script that is over in a moment would otherwise run it
+    // again at the rate the key repeats.
+    @Test func heldItemShortcutActsOnlyOnce() {
+        let pressed = KeyRouter.Context(
+            queryIsEmpty: false, depth: 0, selectedItemShortcuts: [commandReturn: reveal])
+        var repeating = pressed
+        repeating.keyIsRepeating = true
+
         #expect(
-            intent(VirtualKey.returnKey, [.command], "\r", in: withShortcut)
-                == .performAction(reveal))
+            intent(VirtualKey.returnKey, [.command], "\r", in: pressed) == .performAction(reveal))
+        #expect(intent(VirtualKey.returnKey, [.command], "\r", in: repeating) == nil)
+        // Unhandled, it would go on to AppKit as a key equivalent nobody has.
+        #expect(swallows(VirtualKey.returnKey, [.command], "\r", in: repeating))
+
+        // A held chord that is nobody's shortcut is still the field's.
+        #expect(!swallows(VirtualKey.ansiA, [.command], "a", in: repeating))
     }
 
     // ⌘1 held on "Search Snippets" would otherwise paste the first snippet of the list it

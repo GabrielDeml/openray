@@ -1,6 +1,9 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "%@ did not report its environment. Scripts run with the one OpenRay was started with." : {
+      "comment" : "Says that the user's shell could not be asked for its environment variables. The placeholder is the shell's name, such as zsh."
+    },
     "%@ in · %@ out" : {
       "comment" : "Quick AI: the tokens of a request, under its answer. The placeholders are the numbers of tokens sent and received."
     },
@@ -15,6 +18,9 @@
     },
     "%@ is not running" : {
       "comment" : "Shown when the Quit action is used on an app that is not running. The placeholder is the app's name."
+    },
+    "%@ is required" : {
+      "comment" : "Shown when Return was pressed without a text for an argument a script needs. The placeholder is what the script calls the argument."
     },
     "%@ works by sending a command to %@, and macOS asks for your permission first." : {
       "comment" : "Explains an Automation permission. The first placeholder is a list of command names, the second an app's name."
@@ -45,6 +51,24 @@
     "(what you copied last)" : {
       "comment" : "Stands in for the clipboard's text in the preview of a snippet that has the placeholder {clipboard}."
     },
+    "@openray.%@ has a value that OpenRay cannot use." : {
+      "comment" : "Script Diagnostics: the value of a line in the script is not one of those allowed. The placeholder is the line's key, such as “mode” or “timeout”."
+    },
+    "@openray.%@ is missing." : {
+      "comment" : "Script Diagnostics: a line every script needs is not in the file. The placeholder is the line's key, such as “title”; with @openray. in front it is what the user has to type."
+    },
+    "@openray.%@ is there more than once." : {
+      "comment" : "Script Diagnostics: the same line is in the script twice. The placeholder is the line's key, such as “title”."
+    },
+    "@openray.argument%lld is not valid JSON for an argument." : {
+      "comment" : "Script Diagnostics: the description of one of a script's arguments cannot be read. The placeholder is the argument's number, 1 to 3, and is part of the key."
+    },
+    "@openray.argument%lld is there, but @openray.argument%lld is not." : {
+      "comment" : "Script Diagnostics: a script describes its second or third argument and not the one before it. The placeholders are the two arguments' numbers and are part of the keys."
+    },
+    "@openray.schemaVersion is “%@”. This version of OpenRay reads version 1 only." : {
+      "comment" : "Script Diagnostics: the script is written for a format this OpenRay does not know. The placeholder is what the script gives as its version."
+    },
     "A key is saved in your Keychain" : {
       "comment" : "Quick AI settings: the state of the API key when one is stored."
     },
@@ -59,6 +83,9 @@
     },
     "Add Alias…" : {
       "comment" : "The action that opens Settings, where the selected app can be given an alias."
+    },
+    "Add Script Folder…" : {
+      "comment" : "The command that opens Settings and asks for a further folder to read scripts from."
     },
     "Add your Anthropic API key" : {
       "comment" : "Quick AI: shown in the chat when no API key is stored."
@@ -83,6 +110,9 @@
     },
     "Apps with unsaved changes may ask before they quit." : {
       "comment" : "The message of the confirmation before restarting, shutting down, logging out or quitting all apps."
+    },
+    "Argument %lld" : {
+      "comment" : "What an argument of a script is called when the script gives it no name. The placeholder is its number, 1 to 3."
     },
     "Ask" : {
       "comment" : "Quick AI: the action that sends what is in the search field as a question."
@@ -132,6 +162,9 @@
     "Command" : {
       "comment" : "The kind of a search result that is a command, shown at the end of its row."
     },
+    "Continue" : {
+      "comment" : "The action that takes what was typed for one argument of a script and asks for the next."
+    },
     "Continue AI chat" : {
       "comment" : "The row at the top of the empty search field while a Quick AI chat is going on. It opens the chat again."
     },
@@ -152,6 +185,9 @@
     },
     "Copy Expression" : {
       "comment" : "The action that copies the calculation as the user typed it to the clipboard."
+    },
+    "Copy Output" : {
+      "comment" : "The action that copies everything a script has printed to the clipboard."
     },
     "Copy Path" : {
       "comment" : "The action that copies the path of the selected app or file."
@@ -195,6 +231,15 @@
     "Emptying the Trash" : {
       "comment" : "Shown briefly after the Empty Trash command was sent to Finder."
     },
+    "Every user of this Mac can change the folder “%@”, so OpenRay runs no script in it. To fix that, run chmod o-w on the folder." : {
+      "comment" : "Why every script in a folder is refused. The placeholder is the folder's name. “chmod o-w” is a command and is typed as it stands."
+    },
+    "Every user of this Mac can change “%@”, so OpenRay does not run it. To fix that, run chmod o-w on the file." : {
+      "comment" : "Why a script is refused. The placeholder is the file's name. “chmod o-w” is a command and is typed as it stands."
+    },
+    "Exit code %lld" : {
+      "comment" : "Shown under a script's output when the script ended with an error. The placeholder is the number the script exited with."
+    },
     "Fast, with better answers" : {
       "comment" : "Quick AI settings: what sets Claude Sonnet apart from the other models."
     },
@@ -212,6 +257,9 @@
     },
     "Finder" : {
       "comment" : "The name of the Finder app."
+    },
+    "Finished" : {
+      "comment" : "Shown under a script's output when the script ended without an error."
     },
     "First Third" : {
       "comment" : "The window command that fills the left third of the screen."
@@ -279,6 +327,9 @@
     "Log out?" : {
       "comment" : "The title of the confirmation before logging out."
     },
+    "Make Executable" : {
+      "comment" : "The action that gives a script's file the permission to be run, for a script that does not have it."
+    },
     "Maximize Window" : {
       "comment" : "The window command that fills the screen, without making the window full screen."
     },
@@ -318,6 +369,12 @@
     "No other display" : {
       "comment" : "Shown when a window is to be moved to another display and the Mac has only one."
     },
+    "No problems in your script folders." : {
+      "comment" : "Shown in the Script Diagnostics list when every file in the script folders is in order."
+    },
+    "No script has run yet." : {
+      "comment" : "Shown by the command Show Last Script Output when no script has run since OpenRay started."
+    },
     "No snippets yet. Add one with Create Snippet." : {
       "comment" : "Shown in the list of snippets while there are none. Create Snippet is the name of a command."
     },
@@ -336,17 +393,32 @@
     "Not known" : {
       "comment" : "The state of a permission that could not be found out."
     },
+    "Not read yet. OpenRay asks your shell before it runs the first script." : {
+      "comment" : "Settings › Scripts: says that the environment variables scripts run with have not been read from the user's shell yet."
+    },
     "Open" : {
       "comment" : "The action that opens the selected app, quicklink or file."
     },
     "Open Quick AI Settings" : {
       "comment" : "Quick AI: the action and button that open the settings where the API key and the model are set."
     },
+    "Open Scripts Folder" : {
+      "comment" : "The command that opens the folder OpenRay reads scripts from in Finder."
+    },
     "Open System Settings" : {
       "comment" : "Opens the page of System Settings where a permission can be granted."
     },
     "Open With…" : {
       "comment" : "The action that lists the apps the selected file can be opened with."
+    },
+    "Open in Editor" : {
+      "comment" : "The action that opens a script's file in the app that edits plain text files."
+    },
+    "OpenRay cannot read this file." : {
+      "comment" : "Script Diagnostics: a file in a script folder cannot be opened."
+    },
+    "OpenRay cannot read this folder." : {
+      "comment" : "Script Diagnostics: a folder that scripts are read from cannot be opened."
     },
     "OpenRay could not get the permission “%@”." : {
       "comment" : "Shown when macOS could not be asked for a permission a command needs. The placeholder is the permission's name."
@@ -396,11 +468,17 @@
     "Rate limited, try again later" : {
       "comment" : "Quick AI: shown when too many requests were sent."
     },
+    "Reading your shell environment…" : {
+      "comment" : "Shown under a script's output before the script starts, while OpenRay asks the user's shell for its environment variables."
+    },
     "Reboot" : {
       "comment" : "Another word the Restart command is found by."
     },
     "Regenerate" : {
       "comment" : "Quick AI: the action that asks the last question again for another answer."
+    },
+    "Reload Shell Environment" : {
+      "comment" : "The command that asks the user's shell for its environment variables again, for scripts to run with."
     },
     "Restart" : {
       "comment" : "The command that restarts the Mac."
@@ -417,11 +495,44 @@
     "Right Half" : {
       "comment" : "The window command that fills the right half of the screen."
     },
+    "Run" : {
+      "comment" : "The action that runs the selected script. Also the button that confirms running one."
+    },
+    "Run Again" : {
+      "comment" : "The action that runs the script whose output is shown once more, with the same arguments."
+    },
+    "Run “%@”?" : {
+      "comment" : "The title of the confirmation before a script runs. The placeholder is the script's title."
+    },
+    "Running…" : {
+      "comment" : "Shown under a script's output while the script runs."
+    },
+    "Script" : {
+      "comment" : "The kind of a search result that is a script, shown at the end of its row."
+    },
+    "Script Diagnostics" : {
+      "comment" : "The command that lists the files in the script folders that could not be made into commands, with the reasons."
+    },
+    "Script failed" : {
+      "comment" : "Shown in the HUD when a script ended with an error. Its output can be read with the command Show Last Script Output."
+    },
+    "Script stopped" : {
+      "comment" : "Shown in the HUD, and under a script's output, when the user stopped a script."
+    },
+    "Script timed out" : {
+      "comment" : "Shown in the HUD, and under a script's output, when a script ran for too long and was stopped."
+    },
+    "Scripts run with the environment of %@: %lld variables." : {
+      "comment" : "Says that scripts get the environment variables of the user's shell. The first placeholder is the shell's name, such as zsh, the second the number of variables."
+    },
     "Search Files" : {
       "comment" : "The command that opens the list where files are searched by name. It is also a row shown when a search finds nothing, where it searches for what was typed."
     },
     "Search Snippets" : {
       "comment" : "The command that opens the list of snippets, which searches their text."
+    },
+    "Show Last Script Output" : {
+      "comment" : "The command that shows what the script that ran last has printed, also one that ran without showing its output."
     },
     "Show Update" : {
       "comment" : "The action of the Update Available row. It opens the window of the update."
@@ -454,7 +565,7 @@
       "comment" : "Shown in the list of Search Files when Spotlight returns nothing at all. The command after the colon is typed as it stands. File Search is the name of a pane of the settings window."
     },
     "Stop" : {
-      "comment" : "Quick AI: the action that stops the answer that is arriving."
+      "comment" : "The action that stops what is under way: an answer of Quick AI that is arriving, or a running script."
     },
     "Stopped" : {
       "comment" : "Quick AI: shown under an answer that the user stopped."
@@ -470,6 +581,12 @@
     },
     "The conversation could not be prepared for sending." : {
       "comment" : "Quick AI: the error shown when a request could not be written."
+    },
+    "The file has no @openray lines." : {
+      "comment" : "Not shown at present. Why a file in a script folder is not a script command. @openray is typed as it stands."
+    },
+    "The folder “%@” belongs to another user, so OpenRay runs no script in it." : {
+      "comment" : "Why every script in a folder is refused. The placeholder is the folder's name."
     },
     "The items in the Trash are deleted for good." : {
       "comment" : "The message of the confirmation before emptying the Trash."
@@ -488,6 +605,15 @@
     },
     "The snippet is deleted for good." : {
       "comment" : "The message of the confirmation before deleting a snippet."
+    },
+    "This file is not executable and does not begin with a #! line, so OpenRay does not know what to run it with." : {
+      "comment" : "Script Diagnostics: a script cannot be run. “#!” is typed as it stands; it begins the line that names a script's interpreter."
+    },
+    "This folder does not exist." : {
+      "comment" : "Script Diagnostics: a folder that scripts are read from is gone."
+    },
+    "This folder has more than %lld files. OpenRay reads the first %lld by name." : {
+      "comment" : "Script Diagnostics: a script folder is too large to be read whole. Both placeholders are the same number, the limit."
     },
     "This key cannot use any of these models." : {
       "comment" : "Quick AI settings: shown when the API key has none of the models Quick AI offers."
@@ -555,8 +681,32 @@
     "the login window" : {
       "comment" : "The system process that restarts, shuts down and logs out."
     },
+    "“%@” belongs to another user, so OpenRay does not run it. To use it, make your own copy of the file." : {
+      "comment" : "Why a script is refused. The placeholder is the file's name."
+    },
+    "“%@” can be run now" : {
+      "comment" : "Shown after a script's file was made executable. The placeholder is the file's name."
+    },
+    "“%@” could not be made executable: %@" : {
+      "comment" : "Shown when the Make Executable action fails. The first placeholder is the file's name, the second the system's description of the error."
+    },
+    "“%@” could not be started: %@" : {
+      "comment" : "Shown when a script cannot be run. The first placeholder is the file's name, the second the system's description of the error."
+    },
+    "“%@” could not be started: %@. It may be missing its #! line." : {
+      "comment" : "Shown when a script cannot be run. The first placeholder is the file's name, the second the system's description of the error. “#!” is typed as it stands; it begins the line that names a script's interpreter."
+    },
+    "“%@” could not be started: %@. The program in its #! line may be missing." : {
+      "comment" : "Shown when a script cannot be run. The first placeholder is the file's name, the second the system's description of the error. “#!” is typed as it stands; it begins the line that names a script's interpreter."
+    },
     "“%@” does not lead to a valid URL." : {
       "comment" : "Shown when a quicklink's URL template cannot be opened. The placeholder is the quicklink's name."
+    },
+    "“%@” is still in quarantine and was not run: %@" : {
+      "comment" : "Shown when a downloaded script cannot be cleared for running. The first placeholder is the file's name, the second the system's description of the error."
+    },
+    "“%@” was downloaded. It runs as you and can do anything you can do on this Mac. OpenRay does not ask about this file again." : {
+      "comment" : "The message of the confirmation before a downloaded script runs for the first time. The placeholder is the file's name."
     }
   },
   "version" : "1.0"

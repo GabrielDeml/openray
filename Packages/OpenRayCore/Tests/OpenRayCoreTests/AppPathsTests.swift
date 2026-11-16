@@ -25,6 +25,15 @@ import OpenRayCore
         #expect(release.applicationSupportDirectory != debug.applicationSupportDirectory)
     }
 
+    @Test func scriptsFolderIsInTheDataDirectory() {
+        let paths = AppPaths(
+            bundleIdentifier: "io.github.gabrieldeml.openray", applicationSupportRoot: root)
+
+        #expect(
+            paths.scriptsDirectory.path(percentEncoded: false)
+                == "/Users/me/Library/Application Support/io.github.gabrieldeml.openray/Scripts/")
+    }
+
     @Test func defaultsToTheRunningBundleInTheUsersApplicationSupport() {
         let directory = AppPaths().applicationSupportDirectory
 

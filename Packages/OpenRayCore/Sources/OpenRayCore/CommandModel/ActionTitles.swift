@@ -21,4 +21,12 @@ enum ActionTitles {
             localized: "Copy Path", bundle: .module,
             comment: "The action that copies the path of the selected app or file.")
     }
+
+    static var stop: String {
+        String(
+            localized: "Stop", bundle: .module,
+            comment:
+                "The action that stops what is under way: an answer of Quick AI that is arriving, or a running script."
+        )
+    }
 }

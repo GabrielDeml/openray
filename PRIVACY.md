@@ -14,7 +14,9 @@ account and no server of its own.
 
 OpenRay connects to the network for two things: Quick AI, when you ask it
 something, and updates. A third, quicklinks, hands an address to your browser.
-Nothing else in OpenRay makes a network request.
+Nothing else in OpenRay makes a network request. A script you run from
+OpenRay is another matter: it is a program of your own, and what it sends is
+up to it ([Scripts](#scripts) below).
 
 ### Quick AI
 
@@ -73,6 +75,26 @@ request is your browser's, to the site the quicklink names. OpenRay does this
 only when you run the quicklink. In the same way, a link in Settings or in an
 answer of Quick AI opens in your browser when you click it.
 
+### Scripts
+
+A script command is your own program, which OpenRay starts when you run it
+from the launcher and at no other time. It runs as you, without a sandbox,
+and can read, send and store whatever you can. OpenRay does not look at what
+a script does and does not limit it. OpenRay itself sends nothing when a
+script runs.
+
+A script is handed the texts you typed for its arguments, the environment
+variables of your login shell, described under
+[What is not kept](#what-is-not-kept), and a few variables of OpenRay's own:
+that OpenRay started it, OpenRay's version and the script's path.
+
+macOS is expected to treat OpenRay as responsible for the programs it
+starts; Apple documents that for access to the local network, and it has not
+been tried yet for the other permissions. So when macOS asks whether
+"OpenRay" may control another app or use your Documents folder, it can be a
+script you ran that is asking, and what you answer then holds for OpenRay and
+for every script it runs.
+
 ## What is kept on your Mac
 
 ### The database
@@ -81,18 +103,25 @@ answer of Quick AI opens in your browser when you click it.
 with the two companion files SQLite keeps beside it, holds:
 
 - **What you picked**, so that results you use often rank higher: the app,
-  command, snippet or file, how often and how recently. A file is stored as
-  its path, and only once you did something with it from the list of Search
-  Files: opened it, revealed it, listed the apps that open it, previewed it,
-  copied its path or moved it to the Trash. The app you chose in an Open With
-  list is stored the same way, as the app's path.
+  command, snippet, script or file, how often and how recently. A file is
+  stored as its path, and only once you did something with it from the list
+  of Search Files: opened it, revealed it, listed the apps that open it,
+  previewed it, copied its path or moved it to the Trash. The app you chose
+  in an Open With list is stored the same way, as the app's path. A script
+  is stored as the path of its file (`script:` and the path) once you ran it
+  or did something else with it from search. A file or folder in the Script
+  Diagnostics list is stored as its path too, once you opened it, revealed
+  it or copied its path from there.
 - **What you had typed when you picked it**: the text of the search field at
   that moment, without capitals or accents and cut to 32 characters, stored
   with the result it led to. This is how "s" learns to mean Safari. That
   covers a calculation whose result you copied or pasted, what you typed into
-  Search Snippets when you picked a snippet from its list, and what you typed
-  into Search Files when you did something with a file from its list. It does
-  not cover text you handed on to a web search or to Quick AI from the
+  Search Snippets when you picked a snippet from its list, what you typed
+  into Search Files when you did something with a file from its list, what
+  you typed to find a script, and what you typed into Script Diagnostics
+  when you did something with a file there. It does not cover what you type
+  for a script's arguments: that is handed to the script and stored nowhere.
+  Nor does it cover text you handed on to a web search or to Quick AI from the
   "Use … with" rows: that text is not stored. Text handed on to Search Files
   from those rows is not stored either, until you do something with a file it
   found; it then counts as typed into Search Files.
@@ -108,6 +137,18 @@ If the database cannot be read, OpenRay sets it aside under a name ending in
 `.corrupt-` and a date, in the same folder, and starts a new one. If the
 snippets in the old file can still be read, they are copied into the new one.
 
+### The Scripts folder
+
+`~/Library/Application Support/io.github.gabrieldeml.openray/Scripts` is
+made, empty, when OpenRay starts, for you alone. What is in it is yours:
+OpenRay writes no file there. It reads the beginning of each file in that
+folder, in the folders you added and in the folders one level below them,
+8 KiB at most, to find the scripts among them, together with each file's
+owner and permissions, and a picture that a script names as its icon. It
+changes a script's file in two cases only, both of them after you asked:
+Make Executable gives the file's owner the permission to run it, and
+confirming a script that macOS marked as downloaded takes that mark off.
+
 ### Preferences
 
 The app's preferences
@@ -115,8 +156,9 @@ The app's preferences
 which onboarding steps you have seen, the extra folders you added for app
 search, whether the hint about pasting has been shown, the model and effort
 chosen for Quick AI, the gap and the room for Stage Manager that the window
-commands leave, and for Search Files where it looks, the folders you chose
-for it and whether the slower search without Spotlight is switched on.
+commands leave, for Search Files where it looks, the folders you chose for
+it and whether the slower search without Spotlight is switched on, and the
+script folders you added, as their paths.
 
 Sparkle keeps its own settings in the same place: whether to check and to
 install automatically, when it last checked, and a version you chose to skip.
@@ -146,13 +188,20 @@ counts, status and error codes, the names of OpenRay's own commands, screens,
 settings and database queries, the identifier of a system app that a command
 is sent to, the type of what was put on the clipboard, the name of the model,
 the ID Anthropic gives a request and how the request ended, the updater's
-error message, and why a window command moved no window, which is one of a
-handful of fixed words such as `fullScreen`. What you type, your questions,
+error message, why a window command moved no window, which is one of a
+handful of fixed words such as `fullScreen`, and the process ID of a script
+that ran for longer than it may. What you type, your questions,
 the answers and the API key are not logged, and a window command logs neither
 the window's title nor its app. Search Files logs that a file was moved to
 the Trash, with the file's path marked private like any other value, and that
 Spotlight seems to be switched off when it finds that out. It logs nothing
-about what you searched for.
+about what you searched for. Script commands log how many scripts and how
+many files with a problem the script folders hold; where the shell
+environment came from, how many variables it has and how long reading it
+took; and how a script ended, with its exit code, a timeout or a stop, and
+the script's path marked private. They never log what you typed for a
+script's arguments, anything a script printed, or an environment variable,
+neither its name nor its value.
 
 ## What is not kept
 
@@ -169,6 +218,23 @@ about what you searched for.
   does not read the clipboard either. (A Debug build contains a test window,
   opened only with a launch argument, that calls the clipboard when one of
   its buttons is pressed. Released builds do not contain it.)
+- **What a script prints.** The output of the script that ran last is kept
+  in memory, 4 MB of it at most, so that Show Last Script Output can show
+  it. It is gone when the next script is started and when OpenRay quits. It
+  is not written to disk and not logged. The last line a silent script printed is
+  shown on screen for a moment when the script is done.
+- **Your shell environment.** Before OpenRay runs the first script after it
+  was started, it starts your login shell the way a terminal window does, so
+  your shell's startup files run, and reads the environment variables the
+  shell then has. If the shell gives no answer that way, OpenRay starts it a
+  second time, without the startup files that are only for a shell you type
+  into. That is how a script finds the tools you use in Terminal. Reload
+  Shell Environment, and the Reload button in Settings › Scripts, do it
+  again. These variables can hold secrets, such as access tokens. OpenRay
+  keeps them in memory only, hands them to the scripts you run and to
+  nothing else, and never writes them to disk or to the log. Settings ›
+  Scripts shows the name of the shell and how many variables there are, and
+  no variable.
 - **The windows of other apps.** A window command, such as Left Half, needs
   the Accessibility permission. With it, OpenRay reads the position and the
   size of the front window of the app you opened OpenRay over, whether it is
@@ -201,7 +267,10 @@ about what you searched for.
 ## Removing everything
 
 Delete the app, the two folders and the preferences file named above, and the
-Keychain item. If you installed with Homebrew,
+Keychain item. The first of the two folders holds your Scripts folder: move
+your scripts out of it first if you want to keep them. Script folders that
+you added are somewhere else and are not touched, and neither is anything a
+script of yours stored. If you installed with Homebrew,
 `brew uninstall --zap --cask openray` removes the app, the folders and the
 preferences; the Keychain item is removed with "Remove Key" before that, or
 in Keychain Access.

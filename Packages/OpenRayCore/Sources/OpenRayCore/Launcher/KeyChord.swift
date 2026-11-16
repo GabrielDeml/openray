@@ -61,6 +61,7 @@ public enum VirtualKey {
     public static let ansiK: UInt16 = 0x28  // kVK_ANSI_K
     public static let ansiM: UInt16 = 0x2E  // kVK_ANSI_M
     public static let ansiN: UInt16 = 0x2D  // kVK_ANSI_N
+    public static let ansiO: UInt16 = 0x1F  // kVK_ANSI_O
     public static let ansiP: UInt16 = 0x23  // kVK_ANSI_P
     public static let ansiQ: UInt16 = 0x0C  // kVK_ANSI_Q
     public static let ansiR: UInt16 = 0x0F  // kVK_ANSI_R
@@ -71,6 +72,7 @@ public enum VirtualKey {
     public static let ansiZ: UInt16 = 0x06  // kVK_ANSI_Z
     public static let ansiLeftBracket: UInt16 = 0x21  // kVK_ANSI_LeftBracket
     public static let ansiComma: UInt16 = 0x2B  // kVK_ANSI_Comma
+    public static let ansiPeriod: UInt16 = 0x2F  // kVK_ANSI_Period
 
     /// kVK_ANSI_1 to kVK_ANSI_9, in that order. The codes are not consecutive.
     public static let ansiDigits: [UInt16] = [0x12, 0x13, 0x14, 0x15, 0x17, 0x16, 0x1A, 0x1C, 0x19]

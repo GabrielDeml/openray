@@ -1,9 +1,10 @@
 import AppKit
 import OpenRayCore
+import UniformTypeIdentifiers
 
-/// What Core's app, quicklink and file actions ask of `NSWorkspace`. Core cannot use AppKit
-/// itself.
-final class WorkspaceActions: AppActionHost, QuicklinkOpening, FileActionHost {
+/// What Core's app, quicklink, file and script actions ask of `NSWorkspace`. Core cannot use
+/// AppKit itself.
+final class WorkspaceActions: AppActionHost, QuicklinkOpening, FileActionHost, ScriptActionHost {
     /// Opens Settings › Commands on an item. Set by `AppDelegate`, which owns the window.
     var onShowAliasSettings: ((ItemID) -> Void)?
 
@@ -15,7 +16,7 @@ final class WorkspaceActions: AppActionHost, QuicklinkOpening, FileActionHost {
         _ = try await NSWorkspace.shared.openApplication(at: url, configuration: configuration)
     }
 
-    /// Also what `FileActionHost` asks for a found file.
+    /// Also what `FileActionHost` asks for a found file and `ScriptActionHost` for a script.
     func showInFinder(_ url: URL) {
         NSWorkspace.shared.activateFileViewerSelecting([url])
     }
@@ -78,6 +79,25 @@ final class WorkspaceActions: AppActionHost, QuicklinkOpening, FileActionHost {
         let configuration = NSWorkspace.OpenConfiguration()
         _ = try await NSWorkspace.shared.open(
             [url], withApplicationAt: appURL, configuration: configuration)
+    }
+
+    // MARK: ScriptActionHost
+
+    func openInEditor(_ file: URL) async throws {
+        // Always with the app that edits plain text, whatever kind of file the script says
+        // it is. Opened the way Finder opens a file, an executable script can go to
+        // Terminal, which runs it.
+        let textEdit = URL(
+            filePath: "/System/Applications/TextEdit.app", directoryHint: .isDirectory)
+        let editor = NSWorkspace.shared.urlForApplication(toOpen: UTType.plainText) ?? textEdit
+
+        let configuration = NSWorkspace.OpenConfiguration()
+        _ = try await NSWorkspace.shared.open(
+            [file], withApplicationAt: editor, configuration: configuration)
+    }
+
+    func openFolder(_ folder: URL) {
+        NSWorkspace.shared.open(folder)
     }
 }
 
