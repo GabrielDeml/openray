@@ -1,0 +1,357 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "%@ in · %@ out" : {
+      "comment" : "Quick AI: the tokens of a request, under its answer. The placeholders are the numbers of tokens sent and received."
+    },
+    "%@ in · %@ out · %@ cached" : {
+      "comment" : "Quick AI: the tokens of a request, under its answer. The placeholders are the numbers of tokens sent, received, and read from the prompt cache."
+    },
+    "%@ is hidden. Settings › Commands brings it back." : {
+      "comment" : "Shown after an app was hidden from search. The placeholder is the app's name."
+    },
+    "%@ is not available. Quick AI now uses %@." : {
+      "comment" : "Quick AI settings: shown when the chosen model was replaced. Both placeholders are names of models."
+    },
+    "%@ is not running" : {
+      "comment" : "Shown when the Quit action is used on an app that is not running. The placeholder is the app's name."
+    },
+    "%@ works by sending a command to %@, and macOS asks for your permission first." : {
+      "comment" : "Explains an Automation permission. The first placeholder is a list of command names, the second an app's name."
+    },
+    "A key is saved in your Keychain" : {
+      "comment" : "Quick AI settings: the state of the API key when one is stored."
+    },
+    "Accessibility" : {
+      "comment" : "The name of the Accessibility permission, as in System Settings."
+    },
+    "Add Alias…" : {
+      "comment" : "The action that opens Settings, where the selected app can be given an alias."
+    },
+    "Add your Anthropic API key" : {
+      "comment" : "Quick AI: shown in the chat when no API key is stored."
+    },
+    "Allowed" : {
+      "comment" : "The state of a permission the user has granted."
+    },
+    "Answer cut off" : {
+      "comment" : "Quick AI: shown under an answer that ended at the length limit."
+    },
+    "Application" : {
+      "comment" : "The kind of a search result that is an app, shown at the end of its row."
+    },
+    "Apps with unsaved changes may ask before they quit." : {
+      "comment" : "The message of the confirmation before restarting, shutting down, logging out or quitting all apps."
+    },
+    "Ask" : {
+      "comment" : "Quick AI: the action that sends what is in the search field as a question."
+    },
+    "Ask AI" : {
+      "comment" : "The command that opens the Quick AI chat. It is also the first row when a search finds nothing, where it asks what was typed."
+    },
+    "Automation: %@" : {
+      "comment" : "The permission to send commands to another app, which is named."
+    },
+    "Calculator" : {
+      "comment" : "The kind of a search result that is the calculator's answer, shown at the end of its row."
+    },
+    "Changes that were not saved are lost." : {
+      "comment" : "The message of the confirmation before force quitting an app."
+    },
+    "Chat" : {
+      "comment" : "Another word the Ask AI command is found by."
+    },
+    "Check for Updates" : {
+      "comment" : "The command that looks for a newer version of OpenRay."
+    },
+    "Claude declined" : {
+      "comment" : "Quick AI: shown when the model refused to answer."
+    },
+    "Claude declined (%@)" : {
+      "comment" : "Quick AI: shown when the model refused to answer. The placeholder is the API's name for the reason, such as cyber."
+    },
+    "Claude is overloaded, try again in a moment" : {
+      "comment" : "Quick AI: shown when Anthropic's servers are too busy to answer."
+    },
+    "Command" : {
+      "comment" : "The kind of a search result that is a command, shown at the end of its row."
+    },
+    "Continue AI chat" : {
+      "comment" : "The row at the top of the empty search field while a Quick AI chat is going on. It opens the chat again."
+    },
+    "Copied to Clipboard" : {
+      "comment" : "HUD message after an action copied something."
+    },
+    "Copied — press ⌘V" : {
+      "comment" : "HUD message when content was copied but could not be pasted into the previous app."
+    },
+    "Copied — press ⌘V. Grant Accessibility in Settings to paste directly." : {
+      "comment" : "HUD message the first time a paste could only copy because OpenRay lacks the Accessibility permission."
+    },
+    "Copy Answer" : {
+      "comment" : "The action that copies an answer to the clipboard: the calculator's, or the last one of the Quick AI chat."
+    },
+    "Copy Bundle Identifier" : {
+      "comment" : "The action that copies the selected app's bundle identifier."
+    },
+    "Copy Expression" : {
+      "comment" : "The action that copies the calculation as the user typed it to the clipboard."
+    },
+    "Copy Path" : {
+      "comment" : "The action that copies the selected app's file path."
+    },
+    "Couldn't reach Anthropic" : {
+      "comment" : "Quick AI: shown when the connection to Anthropic's servers failed."
+    },
+    "Couldn't read key" : {
+      "comment" : "Quick AI: shown when the API key could not be read from the Keychain."
+    },
+    "Dark Mode" : {
+      "comment" : "Another name the Toggle Appearance command is found by."
+    },
+    "Done" : {
+      "comment" : "Leaves the permission screen once the permission is granted."
+    },
+    "Empty Trash" : {
+      "comment" : "The command that empties the Trash."
+    },
+    "Empty the Trash?" : {
+      "comment" : "The title of the confirmation before emptying the Trash."
+    },
+    "Emptying the Trash" : {
+      "comment" : "Shown briefly after the Empty Trash command was sent to Finder."
+    },
+    "Fast, with better answers" : {
+      "comment" : "Quick AI settings: what sets Claude Sonnet apart from the other models."
+    },
+    "Fastest" : {
+      "comment" : "Quick AI settings: what sets Claude Haiku apart from the other models."
+    },
+    "Finder" : {
+      "comment" : "The name of the Finder app."
+    },
+    "Force Quit" : {
+      "comment" : "The button that confirms force quitting an app."
+    },
+    "Force Quit %@" : {
+      "comment" : "The command that ends a running app at once. The app is named."
+    },
+    "Force quit %@?" : {
+      "comment" : "The title of the confirmation before force quitting an app."
+    },
+    "Give the quicklink a name." : {
+      "comment" : "Shown in the quicklink editor while the name is empty."
+    },
+    "Grant" : {
+      "comment" : "Asks macOS for a permission."
+    },
+    "Hide from Root Search" : {
+      "comment" : "The action that stops the selected app from showing up in search results."
+    },
+    "Key rejected" : {
+      "comment" : "Quick AI: shown when Anthropic did not accept the API key."
+    },
+    "Key verified" : {
+      "comment" : "Quick AI settings: shown when Anthropic accepted the API key."
+    },
+    "Light Mode" : {
+      "comment" : "Another name the Toggle Appearance command is found by."
+    },
+    "Log Out" : {
+      "comment" : "The command that logs the user out."
+    },
+    "Log out?" : {
+      "comment" : "The title of the confirmation before logging out."
+    },
+    "Model unavailable to this key" : {
+      "comment" : "Quick AI: shown when the API key may not use the chosen model."
+    },
+    "New Chat" : {
+      "comment" : "Quick AI: the action that ends the conversation and starts an empty one."
+    },
+    "No key saved" : {
+      "comment" : "Quick AI settings: the state of the API key when none is stored."
+    },
+    "Not allowed" : {
+      "comment" : "The state of a permission OpenRay does not have."
+    },
+    "Not asked yet" : {
+      "comment" : "The state of a permission macOS has not asked the user about."
+    },
+    "Not available to this key" : {
+      "comment" : "Quick AI settings: beside a model that the API key cannot use."
+    },
+    "Not known" : {
+      "comment" : "The state of a permission that could not be found out."
+    },
+    "Open" : {
+      "comment" : "The action that opens the selected app or quicklink."
+    },
+    "Open Quick AI Settings" : {
+      "comment" : "Quick AI: the action and button that open the settings where the API key and the model are set."
+    },
+    "Open System Settings" : {
+      "comment" : "Opens the page of System Settings where a permission can be granted."
+    },
+    "OpenRay could not get the permission “%@”." : {
+      "comment" : "Shown when macOS could not be asked for a permission a command needs. The placeholder is the permission's name."
+    },
+    "OpenRay sends a command to %@ for this, and macOS asks for your permission first." : {
+      "comment" : "Explains an Automation permission. The placeholder is an app's name."
+    },
+    "Paste Answer" : {
+      "comment" : "The action that pastes an answer into the app the user was in: the calculator's, or the last one of the Quick AI chat."
+    },
+    "Pasting into the app you came from" : {
+      "comment" : "What the Accessibility permission is for, in the list of permissions in Settings."
+    },
+    "Power Off" : {
+      "comment" : "Another name the Shut Down command is found by."
+    },
+    "Quick AI" : {
+      "comment" : "Another name the Ask AI command is found by."
+    },
+    "Quicklink" : {
+      "comment" : "The kind of a search result that is a quicklink, shown at the end of its row."
+    },
+    "Quit" : {
+      "comment" : "The action that quits the selected app if it is running."
+    },
+    "Quit %@" : {
+      "comment" : "The command that quits a running app, which is named."
+    },
+    "Quit All" : {
+      "comment" : "The button that confirms quitting every running app."
+    },
+    "Quit All Apps" : {
+      "comment" : "The command that quits every running app."
+    },
+    "Quit all apps?" : {
+      "comment" : "The title of the confirmation before quitting every running app."
+    },
+    "Rate limited, try again in %@ s" : {
+      "comment" : "Quick AI: shown when too many requests were sent. The placeholder is a number of seconds."
+    },
+    "Rate limited, try again later" : {
+      "comment" : "Quick AI: shown when too many requests were sent."
+    },
+    "Reboot" : {
+      "comment" : "Another word the Restart command is found by."
+    },
+    "Regenerate" : {
+      "comment" : "Quick AI: the action that asks the last question again for another answer."
+    },
+    "Restart" : {
+      "comment" : "The command that restarts the Mac."
+    },
+    "Restart this Mac?" : {
+      "comment" : "The title of the confirmation before restarting."
+    },
+    "Results" : {
+      "comment" : "The heading over the search results."
+    },
+    "Show Update" : {
+      "comment" : "The action of the Update Available row. It opens the window of the update."
+    },
+    "Show in Finder" : {
+      "comment" : "The action that reveals the selected app in a Finder window."
+    },
+    "Shut Down" : {
+      "comment" : "The command that turns the Mac off."
+    },
+    "Shut down this Mac?" : {
+      "comment" : "The title of the confirmation before shutting down."
+    },
+    "Sign Out" : {
+      "comment" : "Another name the Log Out command is found by."
+    },
+    "Sleep" : {
+      "comment" : "The command that puts the Mac to sleep."
+    },
+    "Slower, with the best answers" : {
+      "comment" : "Quick AI settings: what sets Claude Opus apart from the other models."
+    },
+    "Stop" : {
+      "comment" : "Quick AI: the action that stops the answer that is arriving."
+    },
+    "Stopped" : {
+      "comment" : "Quick AI: shown under an answer that the user stopped."
+    },
+    "Suggestions" : {
+      "comment" : "The heading over the most used items, shown while nothing is typed."
+    },
+    "System" : {
+      "comment" : "The kind of a search result that is a system command, such as Sleep."
+    },
+    "System Events" : {
+      "comment" : "The name of the System Events app, as System Settings shows it."
+    },
+    "The conversation could not be prepared for sending." : {
+      "comment" : "Quick AI: the error shown when a request could not be written."
+    },
+    "The items in the Trash are deleted for good." : {
+      "comment" : "The message of the confirmation before emptying the Trash."
+    },
+    "The link has to be a URL, such as https://example.com/search?q={query}." : {
+      "comment" : "Shown in the quicklink editor while the URL template is not a valid URL."
+    },
+    "The reply could not be read" : {
+      "comment" : "Quick AI: shown when the reply was not in the form the API documents."
+    },
+    "The request timed out" : {
+      "comment" : "Quick AI: shown when Anthropic's servers did not answer in time."
+    },
+    "The server answered with HTTP status %@." : {
+      "comment" : "Quick AI: the error shown when a request failed and the server's reply gave no reason. The placeholder is a number such as 502."
+    },
+    "This key cannot use any of these models." : {
+      "comment" : "Quick AI settings: shown when the API key has none of the models Quick AI offers."
+    },
+    "Thread too long, start a new one" : {
+      "comment" : "Quick AI: shown when the conversation no longer fits the model."
+    },
+    "Toggle Appearance" : {
+      "comment" : "The command that switches between the light and the dark appearance."
+    },
+    "Turn Off" : {
+      "comment" : "Another name the Shut Down command is found by."
+    },
+    "Type the text for %@" : {
+      "comment" : "The placeholder of the search field while it takes the argument of a quicklink, which is named."
+    },
+    "Unknown version" : {
+      "comment" : "Shown in place of the version number when the app has none."
+    },
+    "Update" : {
+      "comment" : "Another word the Check for Updates command is found by."
+    },
+    "Update Available" : {
+      "comment" : "The row at the top of the empty search field while a newer version of OpenRay is waiting to be installed."
+    },
+    "Upgrade" : {
+      "comment" : "Another word the Check for Updates command is found by."
+    },
+    "Use “%@” with" : {
+      "comment" : "The heading over the fallback commands, shown when a search finds nothing."
+    },
+    "Verifying…" : {
+      "comment" : "Quick AI settings: shown while Anthropic is asked about the API key."
+    },
+    "Version %@" : {
+      "comment" : "Under Update Available: the version that can be installed. The placeholder is a version number such as 0.2.0."
+    },
+    "You're offline" : {
+      "comment" : "Quick AI: shown when the Mac has no internet connection."
+    },
+    "macOS asks for the Accessibility permission before OpenRay may do this." : {
+      "comment" : "Explains the Accessibility permission on the permission screen."
+    },
+    "the login window" : {
+      "comment" : "The system process that restarts, shuts down and logs out."
+    },
+    "“%@” does not lead to a valid URL." : {
+      "comment" : "Shown when a quicklink's URL template cannot be opened. The placeholder is the quicklink's name."
+    }
+  },
+  "version" : "1.0"
+}

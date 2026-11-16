@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Only the keys that have no INFOPLIST_KEY_ build setting. Xcode merges this file into the
+	     Info.plist it generates from Config/Shared.xcconfig and fills in the build settings
+	     (docs/DESIGN.md, sections 5.1 and 6.4). -->
+	<key>SUFeedURL</key>
+	<string>$(SPARKLE_FEED_URL)</string>
+	<key>SUPublicEDKey</key>
+	<string>$(SPARKLE_PUBLIC_ED_KEY)</string>
+	<key>SUEnableSystemProfiling</key>
+	<false/>
+	<!-- Whether Sparkle downloads and installs updates without asking, for a user who has not
+	     chosen. This is the one place to change that default (section 8, item 24). -->
+	<key>SUAutomaticallyUpdate</key>
+	<false/>
+	<!-- SUEnableAutomaticChecks is left out on purpose: onboarding asks, and Sparkle keeps the
+	     answer in the user defaults (section 6.4). -->
+</dict>
+</plist>

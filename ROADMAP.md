@@ -26,6 +26,18 @@ on purpose: people contribute to things they can install.
 Milestone 4 has a gate: clipboard history does not start until the pasteboard
 privacy experiment under [Open questions](#open-questions) has been run.
 
+### Where it stands
+
+Milestones 0 to 3 and 5 are built, and of milestone 4 the calculator and the
+paste path. Clipboard history still waits for the experiment.
+
+Milestone 6 is built as far as it can be without an Apple Developer account:
+the updater, the release job, the Homebrew cask and the contributor guide are
+in the repository, and nothing has been released. Its test, a stranger
+installing OpenRay with one command, is met once the maintainer has worked
+through [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md) and pushed the first tag.
+The demo is on that list too.
+
 ## Built ahead of the feature that needs it
 
 Some shared pieces land earlier than the first feature that uses them, so that
@@ -57,7 +69,7 @@ later milestones extend them and never replace them.
 
 - The first provider is the Claude API with the user's own key. It sits behind
   a small provider protocol so others (for example local models through
-  Ollama) can be added without touching the UI.
+  Ollama) can be added without changing how the chat works.
 - The key is stored in the macOS Keychain, never in a file.
 - Not in the first version: saved chat history, custom AI commands, attaching
   files or screenshots.
@@ -85,4 +97,7 @@ The full list, with the milestone each must be settled by, is in section 8 of
 - **Lock Screen (milestone 7):** it depends on a synthetic keyboard shortcut
   locking the screen, which is unconfirmed. If it does not work, Lock Screen
   does not ship.
-- **Notarisation:** needs a paid Apple Developer account before milestone 6.
+- **Notarisation (milestone 6):** the release job that signs and notarises is
+  written and has never run. It needs a paid Apple Developer account and the
+  rest of the one-time setup in [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md)
+  before the first tag is pushed.

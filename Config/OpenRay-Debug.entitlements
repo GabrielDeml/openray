@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- The hardened runtime blocks Apple events without this, also outside the sandbox.
+	     Restart, Shut Down, Log Out, Empty Trash and Toggle Appearance send them
+	     (docs/DESIGN.md, sections 4.2.10 and 5.1). -->
+	<key>com.apple.security.automation.apple-events</key>
+	<true/>
+	<!-- Debug builds only. Under the hardened runtime, library validation loads nothing that is
+	     not signed by Apple or by the app's own team, and an ad-hoc signed build has no team, so
+	     Sparkle.framework could be refused (docs/DESIGN.md, section 6.6). Release builds keep
+	     library validation: Config/OpenRay.entitlements does not have this key. -->
+	<key>com.apple.security.cs.disable-library-validation</key>
+	<true/>
+</dict>
+</plist>

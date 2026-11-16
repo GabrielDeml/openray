@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- How the release job exports the archive (docs/DESIGN.md, section 6.2): signed for
+	     distribution outside the Mac App Store, with the Developer ID certificate that the job
+	     has imported. No team is named here; the export takes the archive's. -->
+	<key>method</key>
+	<string>developer-id</string>
+	<key>signingStyle</key>
+	<string>manual</string>
+	<key>signingCertificate</key>
+	<string>Developer ID Application</string>
+</dict>
+</plist>

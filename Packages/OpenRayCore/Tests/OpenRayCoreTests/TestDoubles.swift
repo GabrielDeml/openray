@@ -1,0 +1,152 @@
+import Foundation
+
+import OpenRayCore
+
+// Stand-ins for the launcher shell, shared by the tests of everything that runs actions or
+// drives a screen. They record what they were asked to do and do nothing else.
+
+@MainActor final class FakeActionContext: ActionContext {
+    var previousApp: AppRef?
+    var query: String
+    /// What `confirm` answers.
+    var confirmationAnswer = true
+
+    /// What `paste` answers.
+    var pasteResult = PasteResult.pasted
+
+    private(set) var closeLauncherCount = 0
+    private(set) var hudMessages: [String] = []
+    private(set) var confirmations: [Confirmation] = []
+    private(set) var copied: [PasteContent] = []
+    private(set) var pasted: [PasteContent] = []
+
+    init(query: String = "") {
+        self.query = query
+    }
+
+    func closeLauncher() {
+        closeLauncherCount += 1
+    }
+
+    func showHUD(_ text: String) {
+        hudMessages.append(text)
+    }
+
+    func confirm(_ confirmation: Confirmation) async -> Bool {
+        confirmations.append(confirmation)
+        return confirmationAnswer
+    }
+
+    func copy(_ content: PasteContent) {
+        copied.append(content)
+    }
+
+    func paste(_ content: PasteContent) async -> PasteResult {
+        pasted.append(content)
+        return pasteResult
+    }
+}
+
+@MainActor final class FakeScreenContext: ScreenContext {
+    let request: ScreenRequest
+    var searchText = ""
+    var isOnScreen = true
+    let fakeActionContext = FakeActionContext()
+
+    private(set) var screenActions: [ActionDescriptor] = []
+
+    private var searchTextContinuations: [AsyncStream<String>.Continuation] = []
+
+    init(request: ScreenRequest) {
+        self.request = request
+    }
+
+    var actionContext: any ActionContext { fakeActionContext }
+
+    func searchTextChanges() -> AsyncStream<String> {
+        let (changes, continuation) = AsyncStream.makeStream(of: String.self)
+        searchTextContinuations.append(continuation)
+        return changes
+    }
+
+    /// What the shell does when the user types on the screen.
+    func type(_ text: String) {
+        searchText = text
+        for continuation in searchTextContinuations {
+            continuation.yield(text)
+        }
+    }
+
+    func setSearchText(_ text: String) {
+        searchText = text
+    }
+
+    // The screens under test are custom screens: they set actions, and neither rows nor the
+    // search bar.
+    func setSearchBarMode(_ mode: SearchBarMode) {}
+
+    func setSections(_ sections: [ResultSection], answering query: String) {}
+
+    func setScreenActions(_ actions: [ActionDescriptor]) {
+        screenActions = actions
+    }
+}
+
+@MainActor final class FakePermissionChecker: PermissionChecking {
+    /// What `state` answers for each permission; `.unknown` for one that is not listed.
+    var states: [Permission: PermissionState] = [:]
+    /// What a request changes the state to.
+    var stateAfterRequest = PermissionState.granted
+    /// Runs each time a state is read, for a test that needs something to happen meanwhile.
+    var whileReadingState: (() -> Void)?
+
+    private(set) var requested: [Permission] = []
+    private(set) var openedSettingsFor: [Permission] = []
+
+    func state(_ permission: Permission) async -> PermissionState {
+        whileReadingState?()
+        return states[permission] ?? .unknown
+    }
+
+    func request(_ permission: Permission) async -> PermissionState {
+        requested.append(permission)
+        states[permission] = stateAfterRequest
+        return stateAfterRequest
+    }
+
+    func openSystemSettings(for permission: Permission) {
+        openedSettingsFor.append(permission)
+    }
+}
+
+/// An updater that lives in the test: it keeps the two settings in memory, counts the checks
+/// it is asked for and never looks for an update.
+@MainActor final class FakeUpdater: UpdateControlling {
+    var automaticallyChecksForUpdates = false {
+        didSet { automaticChecksWrites.append(automaticallyChecksForUpdates) }
+    }
+    var canCheckForUpdates = true
+    var lastUpdateCheckDate: Date?
+
+    /// Every value automatic checks were set to, in order. Empty means the setting still has
+    /// no value, which is when Sparkle would ask the user with its own prompt.
+    private(set) var automaticChecksWrites: [Bool] = []
+    private(set) var checkCount = 0
+
+    private var wantsAutomaticDownloads = false
+
+    /// As Sparkle has it: updates are installed on their own only while they are also looked
+    /// for on their own, and the choice cannot be changed while they are not.
+    var automaticallyDownloadsUpdates: Bool {
+        get { automaticallyChecksForUpdates && wantsAutomaticDownloads }
+        set {
+            if automaticallyChecksForUpdates {
+                wantsAutomaticDownloads = newValue
+            }
+        }
+    }
+
+    func checkForUpdates() {
+        checkCount += 1
+    }
+}

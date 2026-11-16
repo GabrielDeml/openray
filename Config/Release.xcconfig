@@ -1,0 +1,18 @@
+// The Release configuration: what the release job archives (docs/DESIGN.md §6.2, §6.6).
+//
+// A Release build that is signed ad hoc is not expected to launch: it is hardened, and library
+// validation then refuses Sparkle.framework. §6.6 says how to run one locally.
+
+#include "Shared.xcconfig"
+
+DEBUG_INFORMATION_FORMAT = dwarf-with-dsym
+ENABLE_NS_ASSERTIONS = NO
+SWIFT_COMPILATION_MODE = wholemodule
+
+// Release builds are universal, because nothing here narrows the standard architectures
+// (§8, item 23). "ARCHS = arm64" in this file would drop Intel; the cask would then need
+// "depends_on arch: :arm64".
+
+// Your own settings, such as the team to sign with (§6.6). The file is git-ignored and may
+// be missing.
+#include? "Local.xcconfig"

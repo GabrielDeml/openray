@@ -8,10 +8,17 @@
 
 /* Begin PBXBuildFile section */
 		0A0000000000000000000001 /* OpenRayCore in Frameworks */ = {isa = PBXBuildFile; productRef = 0A0000000000000000000002 /* OpenRayCore */; };
+		0A0000000000000000000013 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 0A0000000000000000000014 /* Sparkle */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		0A0000000000000000000003 /* OpenRay.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = OpenRay.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		0A0000000000000000000017 /* Shared.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Shared.xcconfig; sourceTree = "<group>"; };
+		0A0000000000000000000018 /* Debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Debug.xcconfig; sourceTree = "<group>"; };
+		0A0000000000000000000019 /* Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Release.xcconfig; sourceTree = "<group>"; };
+		0A000000000000000000001A /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		0A000000000000000000001B /* OpenRay.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = OpenRay.entitlements; sourceTree = "<group>"; };
+		0A000000000000000000001C /* OpenRay-Debug.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = "OpenRay-Debug.entitlements"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -28,6 +35,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				0A0000000000000000000001 /* OpenRayCore in Frameworks */,
+				0A0000000000000000000013 /* Sparkle in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -38,8 +46,22 @@
 			isa = PBXGroup;
 			children = (
 				0A0000000000000000000004 /* OpenRay */,
+				0A0000000000000000000016 /* Config */,
 				0A0000000000000000000007 /* Products */,
 			);
+			sourceTree = "<group>";
+		};
+		0A0000000000000000000016 /* Config */ = {
+			isa = PBXGroup;
+			children = (
+				0A0000000000000000000017 /* Shared.xcconfig */,
+				0A0000000000000000000018 /* Debug.xcconfig */,
+				0A0000000000000000000019 /* Release.xcconfig */,
+				0A000000000000000000001A /* Info.plist */,
+				0A000000000000000000001B /* OpenRay.entitlements */,
+				0A000000000000000000001C /* OpenRay-Debug.entitlements */,
+			);
+			path = Config;
 			sourceTree = "<group>";
 		};
 		0A0000000000000000000007 /* Products */ = {
@@ -71,6 +93,7 @@
 			name = OpenRay;
 			packageProductDependencies = (
 				0A0000000000000000000002 /* OpenRayCore */,
+				0A0000000000000000000014 /* Sparkle */,
 			);
 			productName = OpenRay;
 			productReference = 0A0000000000000000000003 /* OpenRay.app */;
@@ -102,6 +125,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				0A0000000000000000000011 /* XCLocalSwiftPackageReference "Packages/OpenRayCore" */,
+				0A0000000000000000000015 /* XCRemoteSwiftPackageReference "Sparkle" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 0A0000000000000000000007 /* Products */;
@@ -136,88 +160,27 @@
 /* Begin XCBuildConfiguration section */
 		0A000000000000000000000C /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 0A0000000000000000000018 /* Debug.xcconfig */;
 			buildSettings = {
-				ALWAYS_SEARCH_USER_PATHS = NO;
-				CLANG_ENABLE_MODULES = YES;
-				CLANG_ENABLE_OBJC_ARC = YES;
-				COPY_PHASE_STRIP = NO;
-				DEBUG_INFORMATION_FORMAT = dwarf;
-				ENABLE_STRICT_OBJC_MSGSEND = YES;
-				ENABLE_TESTABILITY = YES;
-				ENABLE_USER_SCRIPT_SANDBOXING = YES;
-				GCC_NO_COMMON_BLOCKS = YES;
-				GCC_OPTIMIZATION_LEVEL = 0;
-				MACOSX_DEPLOYMENT_TARGET = 26.0;
-				ONLY_ACTIVE_ARCH = YES;
-				SDKROOT = macosx;
-				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
-				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
-				SWIFT_VERSION = 6.0;
 			};
 			name = Debug;
 		};
 		0A000000000000000000000D /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 0A0000000000000000000019 /* Release.xcconfig */;
 			buildSettings = {
-				ALWAYS_SEARCH_USER_PATHS = NO;
-				CLANG_ENABLE_MODULES = YES;
-				CLANG_ENABLE_OBJC_ARC = YES;
-				COPY_PHASE_STRIP = NO;
-				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
-				ENABLE_NS_ASSERTIONS = NO;
-				ENABLE_STRICT_OBJC_MSGSEND = YES;
-				ENABLE_USER_SCRIPT_SANDBOXING = YES;
-				GCC_NO_COMMON_BLOCKS = YES;
-				MACOSX_DEPLOYMENT_TARGET = 26.0;
-				SDKROOT = macosx;
-				SWIFT_COMPILATION_MODE = wholemodule;
-				SWIFT_VERSION = 6.0;
 			};
 			name = Release;
 		};
 		0A000000000000000000000E /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				CODE_SIGN_IDENTITY = "-";
-				CODE_SIGN_STYLE = Automatic;
-				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 1;
-				ENABLE_HARDENED_RUNTIME = YES;
-				ENABLE_PREVIEWS = YES;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
-				INFOPLIST_KEY_LSUIElement = YES;
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/../Frameworks",
-				);
-				MARKETING_VERSION = 0.0.1;
-				PRODUCT_BUNDLE_IDENTIFIER = io.github.gabrieldeml.openray;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SWIFT_EMIT_LOC_STRINGS = YES;
 			};
 			name = Debug;
 		};
 		0A0000000000000000000012 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				CODE_SIGN_IDENTITY = "-";
-				CODE_SIGN_STYLE = Automatic;
-				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 1;
-				ENABLE_HARDENED_RUNTIME = YES;
-				ENABLE_PREVIEWS = YES;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
-				INFOPLIST_KEY_LSUIElement = YES;
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/../Frameworks",
-				);
-				MARKETING_VERSION = 0.0.1;
-				PRODUCT_BUNDLE_IDENTIFIER = io.github.gabrieldeml.openray;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SWIFT_EMIT_LOC_STRINGS = YES;
 			};
 			name = Release;
 		};
@@ -251,10 +214,26 @@
 		};
 /* End XCLocalSwiftPackageReference section */
 
+/* Begin XCRemoteSwiftPackageReference section */
+		0A0000000000000000000015 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/sparkle-project/Sparkle";
+			requirement = {
+				kind = exactVersion;
+				version = 2.10.1;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
 /* Begin XCSwiftPackageProductDependency section */
 		0A0000000000000000000002 /* OpenRayCore */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = OpenRayCore;
+		};
+		0A0000000000000000000014 /* Sparkle */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 0A0000000000000000000015 /* XCRemoteSwiftPackageReference "Sparkle" */;
+			productName = Sparkle;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

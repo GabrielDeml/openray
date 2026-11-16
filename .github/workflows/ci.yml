@@ -18,8 +18,41 @@ jobs:
       - name: Show toolchain
         run: xcodebuild -version && swift --version
 
+      # docs/DESIGN.md §3.1. Cocoa is covered because it re-exports AppKit. An import may follow
+      # attributes, an access level ("internal import") or another statement and a semicolon.
+      - name: Check core imports
+        run: |
+          pattern='(^|;)[[:space:]]*(@[[:alnum:]_]+(\([^)]*\))?[[:space:]]+)*((public|package|internal|fileprivate|private)[[:space:]]+)?import[[:space:]]+([[:alpha:]]+[[:space:]]+)?(AppKit|SwiftUI|Carbon|Cocoa)([^[:alnum:]_]|$)'
+          if grep -rnE --include='*.swift' "$pattern" Packages/OpenRayCore/Sources; then
+            echo "::error::OpenRayCore must not import AppKit, SwiftUI or Carbon"
+            exit 1
+          fi
+
+      # docs/DESIGN.md §5.2. `swift test` resolves the package and `xcodebuild` the project, each
+      # into a Package.resolved of its own. This runs before either of them, so it compares the
+      # two files as they were committed. Both builds below are told to keep to their file: a
+      # pin that the manifest no longer allows then fails the build and is not quietly replaced.
+      - name: Check resolved GRDB versions agree
+        run: |
+          pin='.pins[] | select(.identity == "grdb.swift") | "\(.state.version) \(.state.revision)"'
+          package=$(jq -r "$pin" Packages/OpenRayCore/Package.resolved)
+          project=$(jq -r "$pin" OpenRay.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved)
+          if [ -z "$package" ] || [ -z "$project" ]; then
+            echo "::error::A Package.resolved file has no pin for GRDB"
+            exit 1
+          fi
+          if [ "$package" != "$project" ]; then
+            echo "::error::GRDB is resolved to '$package' by the package and to '$project' by the project"
+            exit 1
+          fi
+
+      # The release job runs these scripts only when a tag is pushed, which is too late to
+      # learn that one of them is broken (docs/DESIGN.md §6.3).
+      - name: Test release scripts
+        run: bash Scripts/test-release-scripts.sh
+
       - name: Test core package
-        run: swift test --package-path Packages/OpenRayCore
+        run: swift test --force-resolved-versions --package-path Packages/OpenRayCore
 
       - name: Build app
         run: >
@@ -28,5 +61,36 @@ jobs:
           -scheme OpenRay
           -configuration Debug
           -destination 'platform=macOS'
+          -disableAutomaticPackageResolution
           build
           CODE_SIGNING_ALLOWED=NO
+
+      # The configuration that the release job archives. Without this step its first compile on
+      # this toolchain would be the one after a tag was pushed.
+      - name: Build app (Release)
+        run: >
+          xcodebuild
+          -project OpenRay.xcodeproj
+          -scheme OpenRay
+          -configuration Release
+          -destination 'platform=macOS'
+          -disableAutomaticPackageResolution
+          build
+          CODE_SIGNING_ALLOWED=NO
+
+      # docs/DESIGN.md §5.4. The benchmarks print how long ranking and the reducer take and
+      # assert nothing, and a hosted runner is too noisy to hold them to a budget. This step
+      # cannot fail the job: the numbers are there to be read in the log. The release
+      # configuration is what a user runs; -enable-testing is what lets the benchmarks reach
+      # the internals of the package in that configuration.
+      - name: Run core benchmarks
+        continue-on-error: true
+        env:
+          OPENRAY_BENCHMARKS: "1"
+        run: >
+          swift test
+          --force-resolved-versions
+          --package-path Packages/OpenRayCore
+          -c release
+          -Xswiftc -enable-testing
+          --filter OpenRayCoreBenchmarks
