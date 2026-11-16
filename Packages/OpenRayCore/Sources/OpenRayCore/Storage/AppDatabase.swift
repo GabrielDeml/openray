@@ -8,17 +8,18 @@ public struct AppDatabase: Sendable {
     static let fileName = "OpenRay.sqlite"
 
     let writer: any DatabaseWriter
-    /// Whether the file that was there could not be used and this is an empty database in its
+    /// Whether the file that was there could not be used and this is a new database in its
     /// place. The app tells the user once, because what the launcher had learned and the
-    /// user's aliases and quicklinks are gone from it (§4.3.8).
+    /// user's aliases and quicklinks are gone from it (§4.3.8). The snippets are not, if the
+    /// old file could still be read that far.
     public let wasReplaced: Bool
 
     /// Opens the database in `directory` and brings its schema up to date. The directory and the
     /// file are created when they are missing.
     ///
     /// A database that cannot be opened or migrated is renamed to `OpenRay.sqlite.corrupt-<date>`
-    /// and replaced by an empty one: a broken file costs what the launcher has learned, but not
-    /// the launcher. The error is thrown only when the empty one cannot be opened either.
+    /// and replaced by a new one: a broken file costs what the launcher has learned, but not
+    /// the launcher. The error is thrown only when the new one cannot be opened either.
     ///
     /// This works on the disk and blocks until it is done. Callers on the main actor go through
     /// a `@concurrent` function.
@@ -35,9 +36,65 @@ public struct AppDatabase: Sendable {
             Log.storage.error("Cannot open the database, moving it aside: \(error)")
         }
 
+        return try replaceDatabase(at: file)
+    }
+
+    /// Moves the database at `file` aside and opens a new one in its place. The snippets are
+    /// carried over when the old file still gives them up: of everything in it, they are the
+    /// most work to write again (§4.3.8).
+    ///
+    /// Internal for the tests, which call it on a file that is in good order. A file that
+    /// fails to migrate cannot be made for a test, because in Debug builds the migrator
+    /// erases such a file instead of failing.
+    static func replaceDatabase(at file: URL) throws -> AppDatabase {
+        // Read before the files are renamed. In WAL mode the newest rows can still be in the
+        // `-wal` file, which SQLite no longer finds under its new name.
+        let snippets = readSnippets(ofUnusableDatabase: file)
         moveAside(file)
+
         let writer = try open(file)
+        if !snippets.isEmpty {
+            store(snippets, in: writer)
+        }
         return AppDatabase(writer: writer, wasReplaced: true)
+    }
+
+    /// The snippets in a database that could not be opened, or none when they cannot be read
+    /// either. The file is opened read-only and without the migrations: whatever is wrong
+    /// with it, this must not change it.
+    private static func readSnippets(ofUnusableDatabase file: URL) -> [Snippet] {
+        do {
+            var configuration = Configuration()
+            configuration.readonly = true
+            let queue = try DatabaseQueue(
+                path: file.path(percentEncoded: false), configuration: configuration)
+            let snippets = try queue.read { db in
+                try SnippetStore.fetchAll(db)
+            }
+            // Closed here and not whenever the value goes away: the file is renamed next.
+            try queue.close()
+            return snippets
+        } catch {
+            Log.storage.error("Cannot read the snippets of the old database: \(error)")
+            return []
+        }
+    }
+
+    /// Puts the snippets of the old database into the new one, with the IDs and dates they
+    /// had. All of them or none.
+    private static func store(_ snippets: [Snippet], in writer: any DatabaseWriter) {
+        do {
+            try writer.write { db in
+                for snippet in snippets {
+                    try SnippetStore.write(snippet, to: db)
+                }
+            }
+            Log.storage.notice(
+                "Carried \(snippets.count, privacy: .public) snippets over to the new database")
+        } catch {
+            // The old file is kept, so they are not lost, only not here.
+            Log.storage.error("Cannot carry the snippets over to the new database: \(error)")
+        }
     }
 
     /// A database that is gone when the last copy of the value is, for tests.
@@ -139,6 +196,55 @@ public struct AppDatabase: Sendable {
                     sql: "INSERT INTO fallback (item_id, position) VALUES (?, ?)",
                     arguments: [id.rawValue, position])
             }
+        }
+
+        // What is permanent here, once a release has run this migration:
+        //
+        // - `row_id` is the key `snippet_fts` hangs on. It is a column of its own because the
+        //   implicit rowid of a table with a text primary key may be renumbered by VACUUM,
+        //   which would leave every row of the index pointing at another snippet.
+        // - `id`, the UUID, is the snippet's identity everywhere outside this table: in its
+        //   `ItemID` (`snippet:<uuid>`), and through that in the usage and alias tables.
+        //   `row_id` never leaves `SnippetStore`, because the integers are handed out anew
+        //   when the rows are carried over into a new database (`replaceDatabase`).
+        // - The table is never written with `INSERT OR REPLACE`. That deletes the old row
+        //   without firing the delete trigger, and its text would stay in the index.
+        // - `snippet_fts` is an index and holds nothing of its own: a later migration may
+        //   drop it and build it again, with another tokenizer if need be. The `snippet`
+        //   table may not change shape, because a database that cannot be migrated is still
+        //   read for its snippets.
+        migrator.registerMigration("m7_snippets") { db in
+            try db.execute(
+                sql: """
+                    CREATE TABLE snippet (
+                      row_id     INTEGER PRIMARY KEY,
+                      id         TEXT NOT NULL UNIQUE,
+                      name       TEXT NOT NULL,
+                      keyword    TEXT UNIQUE,
+                      body       TEXT NOT NULL,
+                      created_at REAL NOT NULL,
+                      updated_at REAL NOT NULL
+                    );
+                    CREATE VIRTUAL TABLE snippet_fts USING fts5(
+                      name, keyword, body,
+                      content='snippet', content_rowid='row_id', tokenize='trigram'
+                    );
+
+                    CREATE TRIGGER snippet_after_insert AFTER INSERT ON snippet BEGIN
+                      INSERT INTO snippet_fts (rowid, name, keyword, body)
+                      VALUES (new.row_id, new.name, new.keyword, new.body);
+                    END;
+                    CREATE TRIGGER snippet_after_delete AFTER DELETE ON snippet BEGIN
+                      INSERT INTO snippet_fts (snippet_fts, rowid, name, keyword, body)
+                      VALUES ('delete', old.row_id, old.name, old.keyword, old.body);
+                    END;
+                    CREATE TRIGGER snippet_after_update AFTER UPDATE ON snippet BEGIN
+                      INSERT INTO snippet_fts (snippet_fts, rowid, name, keyword, body)
+                      VALUES ('delete', old.row_id, old.name, old.keyword, old.body);
+                      INSERT INTO snippet_fts (rowid, name, keyword, body)
+                      VALUES (new.row_id, new.name, new.keyword, new.body);
+                    END;
+                    """)
         }
 
         return migrator

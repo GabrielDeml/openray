@@ -1,8 +1,9 @@
 import AppKit
 import OpenRayCore
 
-/// What Core's app and quicklink actions ask of `NSWorkspace`. Core cannot use AppKit itself.
-final class WorkspaceActions: AppActionHost, QuicklinkOpening {
+/// What Core's app, quicklink and file actions ask of `NSWorkspace`. Core cannot use AppKit
+/// itself.
+final class WorkspaceActions: AppActionHost, QuicklinkOpening, FileActionHost {
     /// Opens Settings › Commands on an item. Set by `AppDelegate`, which owns the window.
     var onShowAliasSettings: ((ItemID) -> Void)?
 
@@ -14,6 +15,7 @@ final class WorkspaceActions: AppActionHost, QuicklinkOpening {
         _ = try await NSWorkspace.shared.openApplication(at: url, configuration: configuration)
     }
 
+    /// Also what `FileActionHost` asks for a found file.
     func showInFinder(_ url: URL) {
         NSWorkspace.shared.activateFileViewerSelecting([url])
     }
@@ -50,4 +52,40 @@ final class WorkspaceActions: AppActionHost, QuicklinkOpening {
             _ = try await NSWorkspace.shared.open(url, configuration: configuration)
         }
     }
+
+    // MARK: FileActionHost
+
+    func open(_ url: URL) async throws {
+        let configuration = NSWorkspace.OpenConfiguration()
+        _ = try await NSWorkspace.shared.open(url, configuration: configuration)
+    }
+
+    func moveToTrash(_ url: URL) async throws {
+        try await moveFileToTrash(url)
+    }
+
+    func appsAbleToOpen(_ url: URL) -> [OpenWithApp] {
+        let defaultApp = NSWorkspace.shared.urlForApplication(toOpen: url)
+        return NSWorkspace.shared.urlsForApplications(toOpen: url).map { appURL in
+            OpenWithApp(
+                url: appURL,
+                name: FileManager.default.displayName(atPath: appURL.path(percentEncoded: false)),
+                isDefault: appURL.standardizedFileURL == defaultApp?.standardizedFileURL)
+        }
+    }
+
+    func open(_ url: URL, withAppAt appURL: URL) async throws {
+        let configuration = NSWorkspace.OpenConfiguration()
+        _ = try await NSWorkspace.shared.open(
+            [url], withApplicationAt: appURL, configuration: configuration)
+    }
+}
+
+/// Moves the file to the Trash, off the main thread. The first time OpenRay touches a file in
+/// Desktop, Documents or Downloads, macOS may ask the user about the folder, and the call
+/// then waits for the answer. The launcher is still open at that point (§4.8) and has to go
+/// on answering Esc.
+@concurrent
+private func moveFileToTrash(_ url: URL) async throws {
+    try FileManager.default.trashItem(at: url, resultingItemURL: nil)
 }

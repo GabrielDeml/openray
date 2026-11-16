@@ -13,6 +13,10 @@ import Foundation
     func confirm(_ confirmation: Confirmation) async -> Bool
     func copy(_ content: PasteContent)
     func paste(_ content: PasteContent) async -> PasteResult
+    /// The plain text on the clipboard, or nil when it holds none. This reads the general
+    /// pasteboard, which macOS may answer with a privacy alert, so an action asks only when
+    /// what it does needs the text, and closes the launcher first (§4.9).
+    func clipboardText() async -> String?
 }
 
 public struct AppRef: Sendable, Hashable {

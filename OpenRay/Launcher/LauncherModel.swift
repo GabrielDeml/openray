@@ -162,15 +162,26 @@ final class LauncherModel {
         return rows
     }
 
-    /// Whether the current query has been answered with nothing.
-    var hasNoResults: Bool {
-        if state.top.query.isEmpty { return false }
-        if let screen = topScreen {
-            let rowsAnswerCurrentQuery = screen.context.answeredQuery == state.top.query
-            return rowsAnswerCurrentQuery && screen.context.sections.isEmpty
+    /// What the list says in place of rows: the current query has been answered with nothing.
+    /// nil while there are rows, and while the answer is still on its way.
+    var emptyListMessage: String? {
+        let noResults = String(localized: "No Results")
+
+        if let context = topScreen?.context {
+            let rowsAnswerCurrentQuery = context.answeredQuery == state.top.query
+            let hasRows = context.sections.contains { section in !section.rows.isEmpty }
+            if !rowsAnswerCurrentQuery || hasRows { return nil }
+            // A list screen can say why it is empty: "No snippets yet". When it does not, a
+            // text that found nothing gets the same words as at the root, and an empty field
+            // gets none.
+            if let message = context.emptyMessage { return message }
+            return state.top.query.isEmpty ? nil : noResults
         }
+
+        if state.top.query.isEmpty { return nil }
         let resultsAnswerCurrentQuery = results.generation == state.generation
-        return resultsAnswerCurrentQuery && results.sections.isEmpty
+        let foundNothing = resultsAnswerCurrentQuery && results.sections.isEmpty
+        return foundNothing ? noResults : nil
     }
 
     // MARK: Intents

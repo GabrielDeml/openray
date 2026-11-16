@@ -354,9 +354,9 @@ private struct FallbackList: View {
 
             HStack {
                 Menu("Add") {
-                    ForEach(model.fallbackCandidates) { quicklink in
-                        Button(quicklink.name) {
-                            Task { await model.addFallback(quicklink.itemID) }
+                    ForEach(model.fallbackCandidates) { candidate in
+                        Button(candidate.title) {
+                            Task { await model.addFallback(candidate.id) }
                         }
                     }
                 }

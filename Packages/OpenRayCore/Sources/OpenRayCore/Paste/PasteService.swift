@@ -95,6 +95,12 @@ extension Preferences {
         return .pasted
     }
 
+    /// The plain text that is on the clipboard now, for the snippet placeholder `{clipboard}`
+    /// (§4.9). Nothing is written and nothing is kept.
+    public func clipboardText() -> String? {
+        host.readPasteboardText()
+    }
+
     private func write(_ content: PasteContent) {
         let representations = Self.representations(of: content)
         let changeCount = host.writePasteboard(representations)

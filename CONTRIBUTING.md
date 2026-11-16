@@ -118,6 +118,16 @@ swift test --package-path Packages/OpenRayCore
   OPENRAY_BENCHMARKS=1 swift test --package-path Packages/OpenRayCore \
     -c release -Xswiftc -enable-testing --filter OpenRayCoreBenchmarks
   ```
+- The tests of file search use a stand-in for Spotlight and for the
+  workspace: none searches your files, and none opens, reveals or trashes
+  one. A single test runs a real Spotlight query, for the apps in
+  `/System/Applications` and nothing else, and is skipped unless you ask
+  for it:
+
+  ```bash
+  OPENRAY_SPOTLIGHT_TESTS=1 swift test --package-path Packages/OpenRayCore \
+    --filter SpotlightSearcherTests
+  ```
 
 Before a pull request, also build the app the way CI does:
 

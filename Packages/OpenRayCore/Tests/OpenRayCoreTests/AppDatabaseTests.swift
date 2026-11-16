@@ -132,7 +132,7 @@ import Testing
     // The fixture is the database of a milestone 2 build that had counted three picks. It was
     // written by that build's code, not by today's migrations.
     @Test(.timeLimit(.minutes(1)))
-    func databaseOfMilestone2KeepsItsUsageAndGainsTheCommandTables() async throws {
+    func databaseOfMilestone2KeepsItsUsageAndGainsTheLaterTables() async throws {
         let directory = temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -153,6 +153,81 @@ import Testing
         let commands = try await CommandStore(database: database).snapshot()
         #expect(commands.quicklinks.map(\.name) == ["Google", "DuckDuckGo"])
         #expect(commands.fallbackOrder.count == 3)
+
+        #expect(try await SnippetStore(database: database).search("").isEmpty)
+    }
+
+    // The fixture is a database as milestone 6 left it: one pick, one alias and a third
+    // quicklink, written by the code as it was before the snippet tables existed.
+    @Test(.timeLimit(.minutes(1)))
+    func databaseOfMilestone6KeepsWhatItHadAndGainsTheSnippetTables() async throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let fixture = try #require(
+            Bundle.module.url(
+                forResource: "m6", withExtension: "sqlite", subdirectory: "Fixtures/databases"))
+        try FileManager.default.copyItem(
+            at: fixture, to: directory.appending(path: "OpenRay.sqlite"))
+
+        let database = try AppDatabase.openOnDisk(at: directory)
+
+        #expect(!database.wasReplaced)
+        let pickedAt = Date(timeIntervalSince1970: 1_790_000_000)
+        let usage = await (try SQLiteUsageStore(database: database, now: pickedAt)).snapshot()
+        #expect(usage.frecency(of: safari, at: pickedAt) == 1)
+        #expect(usage.affinity(of: safari, query: "saf", at: pickedAt) == 1)
+
+        let commands = try await CommandStore(database: database).snapshot()
+        #expect(commands.aliases == ["term": .app(bundleID: "com.apple.Terminal")])
+        #expect(commands.quicklinks.map(\.name) == ["Google", "DuckDuckGo", "Wikipedia"])
+        #expect(commands.fallbackOrder.count == 3)
+
+        let snippets = SnippetStore(database: database)
+        let signature = Snippet(
+            name: "Signature", keyword: "sig", body: "Kind regards", createdAt: pickedAt,
+            updatedAt: pickedAt)
+        try await snippets.save(signature)
+        #expect(try await snippets.search("regards") == [signature])
+    }
+
+    // A file that fails to migrate cannot be made here: in a Debug build, which is what the
+    // tests are, the migrator erases such a file instead of failing. So the recovery is run
+    // on a file that is in good order, which is the case where there is something to carry.
+    @Test(.timeLimit(.minutes(1)))
+    func replacedDatabaseGetsTheSnippetsOfTheOldOne() async throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let created = Date(timeIntervalSince1970: 1_790_000_000)
+        let edited = Date(timeIntervalSince1970: 1_790_000_600)
+        let signature = Snippet(
+            name: "Signature", keyword: "sig", body: "Kind regards\nAda", createdAt: created,
+            updatedAt: edited)
+        let address = Snippet(
+            name: "Address", body: "1 Main St", createdAt: created, updatedAt: created)
+
+        do {
+            let database = try AppDatabase.openOnDisk(at: directory)
+            let snippets = SnippetStore(database: database)
+            try await snippets.save(signature)
+            try await snippets.save(address)
+            try await CommandStore(database: database).setAliases(["s"], for: signature.itemID)
+        }
+
+        let file = directory.appending(path: "OpenRay.sqlite", directoryHint: .notDirectory)
+        let replacement = try AppDatabase.replaceDatabase(at: file)
+
+        #expect(replacement.wasReplaced)
+        let fileNames = try FileManager.default.contentsOfDirectory(
+            atPath: directory.path(percentEncoded: false))
+        #expect(fileNames.contains { name in name.hasPrefix("OpenRay.sqlite.corrupt-") })
+
+        // The snippets are there as they were, dates and IDs included, and can be searched.
+        let snippets = SnippetStore(database: replacement)
+        #expect(try await snippets.search("") == [address, signature])
+        #expect(try await snippets.search("regards") == [signature])
+        // Nothing else is carried over.
+        #expect(try await CommandStore(database: replacement).snapshot().aliases.isEmpty)
     }
 
     // Clipboard and snippet search (milestones 4 and 7) are designed around this tokenizer, and

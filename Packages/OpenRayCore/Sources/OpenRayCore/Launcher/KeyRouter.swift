@@ -79,11 +79,13 @@ public struct KeyRouter: Sendable {
     ///
     /// Every other key is kept while it has nowhere sensible to go: under a confirmation, where
     /// it would edit the query behind the question, and on a screen that hides the search
-    /// field, where AppKit would find no one to take it and beep.
+    /// field, where AppKit would find no one to take it and beep. A held Return is kept as
+    /// well: it has no intent, and the field editor would end editing on it.
     public func swallows(_ chord: KeyChord, in context: Context) -> Bool {
         if isQuit(chord) { return true }
         // An input method that is composing gets all its keys, as in `intent(for:in:)`.
         if context.hasMarkedText { return false }
+        if context.keyIsRepeating && isReturn(chord) { return true }
         return context.confirmationOpen || context.searchFieldHidden
     }
 
@@ -100,6 +102,13 @@ public struct KeyRouter: Sendable {
 
     private func isQuit(_ chord: KeyChord) -> Bool {
         chord.modifiers == [.command] && chord.types("q", ansiKeyCode: VirtualKey.ansiQ)
+    }
+
+    /// Return or keypad Enter with no modifier.
+    private func isReturn(_ chord: KeyChord) -> Bool {
+        let isReturnKey =
+            chord.keyCode == VirtualKey.returnKey || chord.keyCode == VirtualKey.keypadEnter
+        return chord.modifiers.isEmpty && isReturnKey
     }
 
     /// Select All, Copy, Paste, Cut, Undo and Redo, which the field editor performs through the
@@ -144,7 +153,12 @@ public struct KeyRouter: Sendable {
             case VirtualKey.escape: return .escape
             case VirtualKey.upArrow: return .moveSelection(-1)
             case VirtualKey.downArrow: return .moveSelection(1)
-            case VirtualKey.returnKey, VirtualKey.keypadEnter: return .performPrimary
+            case VirtualKey.returnKey, VirtualKey.keypadEnter:
+                // Return acts once for each press. Held a moment too long on "Search
+                // Snippets", its repeat would land on the list that the press brought up and
+                // paste the first snippet.
+                if context.keyIsRepeating { return nil }
+                return .performPrimary
             case VirtualKey.tab: return .tabComplete
             case VirtualKey.delete:
                 // Delete on an empty field leaves the screen. While the action panel is open the

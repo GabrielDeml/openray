@@ -38,11 +38,13 @@ installing OpenRay with one command, is met once the maintainer has worked
 through [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md) and pushed the first tag.
 The demo is on that list too.
 
-Of milestone 7, window management and Lock Screen are built and not released.
-They were built without moving a real window or locking the screen, so they
-have their own block of manual checks in the release checklist. File search
-and snippets are not built yet. Each of the three can ship as a release of its
-own.
+Milestone 7 is built and not released: window management, Lock Screen,
+snippets and file search. They were built without moving a real window,
+locking the screen, pasting a snippet or searching a real home folder, so
+they have their own blocks of manual checks in the release checklist. Each of
+the three features can ship as a release of its own. A snippet's
+`{clipboard}` placeholder does not wait for clipboard history: it reads the
+clipboard once, when the snippet is pasted.
 
 ## Built ahead of the feature that needs it
 
@@ -54,7 +56,7 @@ later milestones extend them and never replace them.
 | Result and action types in their final shape | 1 | App search (2), command model (3) |
 | Preferences store | 1 | Every later milestone |
 | Shared permission flow | 3 | System commands (3), paste (4), window management (7) |
-| List and custom screens inside the panel | 3 | Clipboard history (4), Quick AI (5), file search (7), scripts (8) |
+| List and custom screens inside the panel | 3 | Quick AI (5), snippets and file search (7), clipboard history (4), scripts (8) |
 | Shared paste path | 4 | Quick AI (5), snippets and Lock Screen (7) |
 
 ## Architecture
@@ -99,7 +101,15 @@ The full list, with the milestone each must be settled by, is in section 8 of
   alert when an app reads the pasteboard in the background. Run the experiment
   described in the design doc on macOS 26 and 27 before any clipboard-history
   work. If even polling for changes triggers the alert, clipboard history
-  cannot ship as designed.
+  cannot ship as designed. The same experiment says what a snippet with
+  `{clipboard}` costs: it is built as a single read at the moment of pasting,
+  and whether macOS answers that with its alert has not been tried.
+- **File search (milestone 7):** it is built on what Spotlight returns, which
+  is a selection of Spotlight's own choosing, and its ranking has only seen
+  made-up files. Whether a file with the right name that was not opened for
+  months still shows up, and whether macOS asks about the Desktop, Documents
+  and Downloads folders when a result is shown, has to be tried on a real
+  home folder before the release that carries it.
 - **Lock Screen (milestone 7):** the command is built. It presses ⌃⌘Q for
   the user, and whether macOS locks the screen for a key press that an app
   made is still unconfirmed: it has to be tried by hand on macOS 26 and 27.

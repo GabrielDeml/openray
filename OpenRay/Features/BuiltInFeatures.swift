@@ -13,6 +13,8 @@ enum BuiltInFeatures {
             SystemCommandsFeature(),
             WindowManagementFeature(),
             QuicklinksFeature(),
+            SnippetsFeature(),
+            FileSearchFeature(),
             CalculatorFeature(),
             QuickAIFeature(),
             UpdatesFeature(),

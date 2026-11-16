@@ -21,8 +21,9 @@ enum CommandSeeds {
         // One second after Google, which keeps the two in this order.
         createdAt: Date(timeIntervalSince1970: 1))
 
-    /// "Search Files" arrives with file search in milestone 7. Its row waits in the list until
-    /// then: an entry whose item no source provides is skipped.
+    /// The "Search Files" command of `FileSearchSource`. The migration of milestone 3 seeded
+    /// it before file search existed, which worked because an entry whose item no source
+    /// provides is skipped.
     static let searchFiles = ItemID.command(FeatureID(rawValue: "files"), "search")
 
     static let quicklinks = [google, duckDuckGo]

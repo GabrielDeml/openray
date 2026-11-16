@@ -42,8 +42,14 @@
         }
       }
     },
+    "(what you copied last)" : {
+      "comment" : "Stands in for the clipboard's text in the preview of a snippet that has the placeholder {clipboard}."
+    },
     "A key is saved in your Keychain" : {
       "comment" : "Quick AI settings: the state of the API key when one is stored."
+    },
+    "A snippet can have {cursor} only once." : {
+      "comment" : "Shown in the snippet editor while the text has the placeholder {cursor} more than once. {cursor} is typed as it stands."
     },
     "Accessibility" : {
       "comment" : "The name of the Accessibility permission, as in System Settings."
@@ -62,6 +68,9 @@
     },
     "Almost Maximize Window" : {
       "comment" : "The window command that fills most of the screen and leaves a margin all around."
+    },
+    "Another snippet already has the keyword “%@”." : {
+      "comment" : "Shown in the snippet editor when the keyword is in use. The placeholder is the keyword."
     },
     "Answer cut off" : {
       "comment" : "Quick AI: shown under an answer that ended at the length limit."
@@ -145,7 +154,10 @@
       "comment" : "The action that copies the calculation as the user typed it to the clipboard."
     },
     "Copy Path" : {
-      "comment" : "The action that copies the selected app's file path."
+      "comment" : "The action that copies the path of the selected app or file."
+    },
+    "Copy Snippet" : {
+      "comment" : "The action that copies the selected snippet's text to the clipboard."
     },
     "Couldn't reach Anthropic" : {
       "comment" : "Quick AI: shown when the connection to Anthropic's servers failed."
@@ -153,11 +165,26 @@
     "Couldn't read key" : {
       "comment" : "Quick AI: shown when the API key could not be read from the Keychain."
     },
+    "Create Snippet" : {
+      "comment" : "The command that opens Settings with the editor for a new snippet."
+    },
     "Dark Mode" : {
       "comment" : "Another name the Toggle Appearance command is found by."
     },
+    "Default" : {
+      "comment" : "Marks the app in the Open With list that opens the file when no app is chosen."
+    },
+    "Delete Snippet" : {
+      "comment" : "The action that deletes the selected snippet. Also the button that confirms it."
+    },
+    "Delete “%@”?" : {
+      "comment" : "The title of the confirmation before deleting a snippet. The placeholder is the snippet's name."
+    },
     "Done" : {
       "comment" : "Leaves the permission screen once the permission is granted."
+    },
+    "Edit Snippet…" : {
+      "comment" : "The action that opens Settings with the selected snippet in the editor."
     },
     "Empty Trash" : {
       "comment" : "The command that empties the Trash."
@@ -174,6 +201,15 @@
     "Fastest" : {
       "comment" : "Quick AI settings: what sets Claude Haiku apart from the other models."
     },
+    "File" : {
+      "comment" : "The kind of a search result that is a file, shown at the end of its row."
+    },
+    "File Search" : {
+      "comment" : "Another name the Search Files command is found by."
+    },
+    "Find File" : {
+      "comment" : "Another name the Search Files command is found by."
+    },
     "Finder" : {
       "comment" : "The name of the Finder app."
     },
@@ -182,6 +218,9 @@
     },
     "First Two Thirds" : {
       "comment" : "The window command that fills the left two thirds of the screen."
+    },
+    "Folder" : {
+      "comment" : "The kind of a search result that is a folder, shown at the end of its row."
     },
     "Force Quit" : {
       "comment" : "The button that confirms force quitting an app."
@@ -192,11 +231,17 @@
     "Force quit %@?" : {
       "comment" : "The title of the confirmation before force quitting an app."
     },
+    "Found without Spotlight" : {
+      "comment" : "The heading over the files that Search Files found by reading folders itself, because Spotlight indexing is off."
+    },
     "Full-screen windows cannot be moved" : {
       "comment" : "Shown when a window command is used on a full-screen window."
     },
     "Give the quicklink a name." : {
       "comment" : "Shown in the quicklink editor while the name is empty."
+    },
+    "Give the snippet a name." : {
+      "comment" : "Shown in the snippet editor while the name is empty."
     },
     "Grant" : {
       "comment" : "Asks macOS for a permission."
@@ -246,17 +291,35 @@
     "Move Window to Previous Display" : {
       "comment" : "The window command that moves a window to the previous screen."
     },
+    "Move to Trash" : {
+      "comment" : "The action that moves the selected file to the Trash. Also the button that confirms it."
+    },
+    "Move “%@” to the Trash?" : {
+      "comment" : "The title of the confirmation before a file is moved to the Trash. The placeholder is the file's name."
+    },
     "New Chat" : {
       "comment" : "Quick AI: the action that ends the conversation and starts an empty one."
     },
+    "New Snippet" : {
+      "comment" : "Another name the Create Snippet command is found by."
+    },
+    "No app can open this file" : {
+      "comment" : "Shown in the Open With list when no app can open the selected file."
+    },
     "No earlier position to restore" : {
       "comment" : "Shown when Restore Window is used on a window that OpenRay has not moved."
+    },
+    "No files found" : {
+      "comment" : "Shown in the list of Search Files when no file has the name that was typed."
     },
     "No key saved" : {
       "comment" : "Quick AI settings: the state of the API key when none is stored."
     },
     "No other display" : {
       "comment" : "Shown when a window is to be moved to another display and the Mac has only one."
+    },
+    "No snippets yet. Add one with Create Snippet." : {
+      "comment" : "Shown in the list of snippets while there are none. Create Snippet is the name of a command."
     },
     "No window to move" : {
       "comment" : "Shown when a window command finds no window it could move."
@@ -274,13 +337,16 @@
       "comment" : "The state of a permission that could not be found out."
     },
     "Open" : {
-      "comment" : "The action that opens the selected app or quicklink."
+      "comment" : "The action that opens the selected app, quicklink or file."
     },
     "Open Quick AI Settings" : {
       "comment" : "Quick AI: the action and button that open the settings where the API key and the model are set."
     },
     "Open System Settings" : {
       "comment" : "Opens the page of System Settings where a permission can be granted."
+    },
+    "Open With…" : {
+      "comment" : "The action that lists the apps the selected file can be opened with."
     },
     "OpenRay could not get the permission “%@”." : {
       "comment" : "Shown when macOS could not be asked for a permission a command needs. The placeholder is the permission's name."
@@ -291,6 +357,9 @@
     "Paste Answer" : {
       "comment" : "The action that pastes an answer into the app the user was in: the calculator's, or the last one of the Quick AI chat."
     },
+    "Paste Snippet" : {
+      "comment" : "The action that pastes the selected snippet into the app the user was in."
+    },
     "Pasting into the app you came from" : {
       "comment" : "What the Accessibility permission is for, in the list of permissions in Settings."
     },
@@ -299,6 +368,9 @@
     },
     "Quick AI" : {
       "comment" : "Another name the Ask AI command is found by."
+    },
+    "Quick Look" : {
+      "comment" : "The action that shows a preview of the selected file beside the list, and hides it again."
     },
     "Quicklink" : {
       "comment" : "The kind of a search result that is a quicklink, shown at the end of its row."
@@ -345,11 +417,17 @@
     "Right Half" : {
       "comment" : "The window command that fills the right half of the screen."
     },
+    "Search Files" : {
+      "comment" : "The command that opens the list where files are searched by name. It is also a row shown when a search finds nothing, where it searches for what was typed."
+    },
+    "Search Snippets" : {
+      "comment" : "The command that opens the list of snippets, which searches their text."
+    },
     "Show Update" : {
       "comment" : "The action of the Update Available row. It opens the window of the update."
     },
     "Show in Finder" : {
-      "comment" : "The action that reveals the selected app in a Finder window."
+      "comment" : "The action that reveals the selected app or file in a Finder window."
     },
     "Shut Down" : {
       "comment" : "The command that turns the Mac off."
@@ -368,6 +446,12 @@
     },
     "Snap" : {
       "comment" : "Another word the window commands are found by."
+    },
+    "Snippet" : {
+      "comment" : "The kind of a search result that is a snippet, shown at the end of its row."
+    },
+    "Spotlight indexing appears to be off.\nTo turn it on, run this in Terminal: sudo mdutil -i on /\nSettings › File Search has a slower search that works without it." : {
+      "comment" : "Shown in the list of Search Files when Spotlight returns nothing at all. The command after the colon is typed as it stands. File Search is the name of a pane of the settings window."
     },
     "Stop" : {
       "comment" : "Quick AI: the action that stops the answer that is arriving."
@@ -402,6 +486,9 @@
     "The server answered with HTTP status %@." : {
       "comment" : "Quick AI: the error shown when a request failed and the server's reply gave no reason. The placeholder is a number such as 502."
     },
+    "The snippet is deleted for good." : {
+      "comment" : "The message of the confirmation before deleting a snippet."
+    },
     "This key cannot use any of these models." : {
       "comment" : "Quick AI settings: shown when the API key has none of the models Quick AI offers."
     },
@@ -429,6 +516,9 @@
     "Type the text for %@" : {
       "comment" : "The placeholder of the search field while it takes the argument of a quicklink, which is named."
     },
+    "Type to search for files by name" : {
+      "comment" : "Shown in the list of Search Files while the search field is empty."
+    },
     "Unknown version" : {
       "comment" : "Shown in place of the version number when the app has none."
     },
@@ -452,6 +542,9 @@
     },
     "Window" : {
       "comment" : "The kind of a search result that is a window command, shown at the end of its row. Also a word every window command is found by."
+    },
+    "Write the text the snippet pastes." : {
+      "comment" : "Shown in the snippet editor while the text is empty."
     },
     "You're offline" : {
       "comment" : "Quick AI: shown when the Mac has no internet connection."

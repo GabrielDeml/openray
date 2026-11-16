@@ -373,9 +373,13 @@ import Testing
     }
 
     /// A model that has read the store once.
-    private func makeModel() async throws -> (model: CommandsSettingsModel, store: CommandStore) {
+    ///
+    /// - Parameter furtherItems: What the launcher has besides `launcherItems`.
+    private func makeModel(
+        furtherItems: [SearchItem] = []
+    ) async throws -> (model: CommandsSettingsModel, store: CommandStore) {
         let store = CommandStore(database: try AppDatabase.inMemory())
-        let items = launcherItems
+        let items = launcherItems + furtherItems
         let model = CommandsSettingsModel(commands: store, currentItems: { items })
         model.start()
         await wait { model.quicklinks.count == 2 }
@@ -506,11 +510,65 @@ import Testing
 
         await model.removeFallback(google)
         await wait { model.fallbackRows.count == 2 }
-        #expect(model.fallbackCandidates.map(\.name) == ["Google"])
+        #expect(model.fallbackCandidates.map(\.title) == ["Google"])
+        #expect(model.fallbackCandidates.map(\.id) == [google])
 
         await model.addFallback(google)
         await wait { model.fallbackRows.count == 3 }
         #expect(model.fallbackRows.map(\.title) == ["DuckDuckGo", nil, "Google"])
+    }
+
+    // "Search Files" is on the list of a new database before any feature provides it. Once
+    // file search is there, the entry has a name and a Remove button, and has to be among
+    // what Add offers, or removing it would be for good.
+
+    private var searchFilesCommand: SearchItem {
+        item(CommandSeeds.searchFiles, "Search Files", kind: "Command")
+    }
+
+    @Test func searchFilesIsNamedOnceItsCommandExists() async throws {
+        let (model, _) = try await makeModel(furtherItems: [searchFilesCommand])
+
+        #expect(model.fallbackRows.map(\.title) == ["Google", "DuckDuckGo", "Search Files"])
+        // It is on the list already.
+        #expect(model.fallbackCandidates.isEmpty)
+    }
+
+    @Test func searchFilesCanBeRemovedAndAddedBack() async throws {
+        let (model, _) = try await makeModel(furtherItems: [searchFilesCommand])
+        let searchFiles = CommandSeeds.searchFiles
+
+        await model.removeFallback(searchFiles)
+        await wait { model.fallbackRows.count == 2 }
+        #expect(
+            model.fallbackCandidates
+                == [CommandsSettingsModel.FallbackCandidate(id: searchFiles, title: "Search Files")]
+        )
+
+        await model.addFallback(searchFiles)
+        await wait { model.fallbackRows.count == 3 }
+        #expect(model.fallbackRows.map(\.title) == ["Google", "DuckDuckGo", "Search Files"])
+        #expect(model.fallbackCandidates.isEmpty)
+    }
+
+    @Test func quicklinksAreOfferedAheadOfSearchFiles() async throws {
+        let (model, _) = try await makeModel(furtherItems: [searchFilesCommand])
+        let google = try #require(model.fallbackRows.first).id
+
+        await model.removeFallback(CommandSeeds.searchFiles)
+        await model.removeFallback(google)
+        await wait { model.fallbackRows.count == 1 }
+
+        #expect(model.fallbackCandidates.map(\.title) == ["Google", "Search Files"])
+    }
+
+    @Test func searchFilesIsNotOfferedWhileNoFeatureProvidesIt() async throws {
+        let (model, _) = try await makeModel()
+
+        await model.removeFallback(CommandSeeds.searchFiles)
+        await wait { model.fallbackRows.count == 2 }
+
+        #expect(model.fallbackCandidates.isEmpty)
     }
 
     @Test(arguments: [

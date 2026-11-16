@@ -80,20 +80,33 @@ answer of Quick AI opens in your browser when you click it.
 `~/Library/Application Support/io.github.gabrieldeml.openray/OpenRay.sqlite`,
 with the two companion files SQLite keeps beside it, holds:
 
-- **What you picked**, so that results you use often rank higher: the app or
-  command, how often and how recently.
+- **What you picked**, so that results you use often rank higher: the app,
+  command, snippet or file, how often and how recently. A file is stored as
+  its path, and only once you did something with it from the list of Search
+  Files: opened it, revealed it, listed the apps that open it, previewed it,
+  copied its path or moved it to the Trash. The app you chose in an Open With
+  list is stored the same way, as the app's path.
 - **What you had typed when you picked it**: the text of the search field at
   that moment, without capitals or accents and cut to 32 characters, stored
   with the result it led to. This is how "s" learns to mean Safari. That
-  covers a calculation whose result you copied or pasted. It does not cover
-  text you handed on to a web search or to Quick AI from the "Use … with"
-  rows: that text is not stored.
+  covers a calculation whose result you copied or pasted, what you typed into
+  Search Snippets when you picked a snippet from its list, and what you typed
+  into Search Files when you did something with a file from its list. It does
+  not cover text you handed on to a web search or to Quick AI from the
+  "Use … with" rows: that text is not stored. Text handed on to Search Files
+  from those rows is not stored either, until you do something with a file it
+  found; it then counts as typed into Search Files.
 - **Your aliases**, the commands and apps you hid or disabled, **your
   quicklinks**, and the order of the commands offered when a search finds
   nothing.
+- **Your snippets**: the name, the keyword and the text of each, and when it
+  was made and last changed. Deleting a snippet removes it from the database.
+  What was stored about your picks of it, as described above, is not removed
+  with it: it stays under an ID that says nothing about the snippet.
 
 If the database cannot be read, OpenRay sets it aside under a name ending in
-`.corrupt-` and a date, in the same folder, and starts a new one.
+`.corrupt-` and a date, in the same folder, and starts a new one. If the
+snippets in the old file can still be read, they are copied into the new one.
 
 ### Preferences
 
@@ -101,8 +114,9 @@ The app's preferences
 (`~/Library/Preferences/io.github.gabrieldeml.openray.plist`) hold the hotkey,
 which onboarding steps you have seen, the extra folders you added for app
 search, whether the hint about pasting has been shown, the model and effort
-chosen for Quick AI, and the gap and the room for Stage Manager that the
-window commands leave.
+chosen for Quick AI, the gap and the room for Stage Manager that the window
+commands leave, and for Search Files where it looks, the folders you chose
+for it and whether the slower search without Spotlight is switched on.
 
 Sparkle keeps its own settings in the same place: whether to check and to
 install automatically, when it last checked, and a version you chose to skip.
@@ -135,7 +149,10 @@ the ID Anthropic gives a request and how the request ended, the updater's
 error message, and why a window command moved no window, which is one of a
 handful of fixed words such as `fullScreen`. What you type, your questions,
 the answers and the API key are not logged, and a window command logs neither
-the window's title nor its app.
+the window's title nor its app. Search Files logs that a file was moved to
+the Trash, with the file's path marked private like any other value, and that
+Spotlight seems to be switched off when it finds that out. It logs nothing
+about what you searched for.
 
 ## What is not kept
 
@@ -143,10 +160,15 @@ the window's title nor its app.
   quits, when you start a new chat, and when you come back to it more than a
   quarter of an hour after its last answer.
 - **Your clipboard.** OpenRay writes to the clipboard when you copy or paste
-  a result. It does not read it, and it has no clipboard history. (A Debug
-  build contains a test window, opened only with a launch argument, that
-  calls the clipboard when one of its buttons is pressed. Released builds do
-  not contain it.)
+  a result, and it has no clipboard history. It reads the clipboard in one
+  case: when you paste or copy a snippet whose text contains `{clipboard}`,
+  OpenRay reads the plain text that is on the clipboard at that moment and
+  puts it into the snippet in that place. macOS may ask you before it lets
+  OpenRay read. What was read is not stored and not logged, and a snippet
+  without `{clipboard}` reads nothing. The preview in Settings › Snippets
+  does not read the clipboard either. (A Debug build contains a test window,
+  opened only with a launch argument, that calls the clipboard when one of
+  its buttons is pressed. Released builds do not contain it.)
 - **The windows of other apps.** A window command, such as Left Half, needs
   the Accessibility permission. With it, OpenRay reads the position and the
   size of the front window of the app you opened OpenRay over, whether it is
@@ -161,6 +183,20 @@ the window's title nor its app.
   screen the Dock is on.
 - **Lock Screen** presses ⌃⌘Q for you, which also needs the Accessibility
   permission. Nothing is read and nothing is kept.
+- **Your files.** Search Files asks Spotlight, on this Mac, for the files
+  whose names contain what you typed, and gets back their paths, their types
+  and when each was last opened. Nothing of that leaves your Mac, and the
+  list is not kept: only a file you act on is remembered, as described under
+  the database above. OpenRay does not open the files it lists. Opening one
+  hands it to its app, and the icon and the Quick Look preview of a file are
+  drawn by macOS. For a file in your Desktop, Documents or Downloads folder,
+  macOS may ask whether OpenRay may access that folder before it shows an
+  icon or a preview or moves the file to the Trash. If Spotlight indexing is
+  off and you switched on the slower search in Settings › File Search,
+  OpenRay reads the names of the files in your home folder, or in the folders
+  you chose, a few levels deep, each time you search; macOS may ask about the
+  same three folders then. It reads names and nothing of the files'
+  contents, and keeps none of it. OpenRay never asks for Full Disk Access.
 
 ## Removing everything
 

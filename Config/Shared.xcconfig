@@ -71,3 +71,9 @@ INFOPLIST_FILE = Config/Info.plist
 INFOPLIST_KEY_LSApplicationCategoryType = public.app-category.productivity
 INFOPLIST_KEY_LSUIElement = YES
 INFOPLIST_KEY_NSAppleEventsUsageDescription = OpenRay sends commands to Finder, System Events and the login window when you run Empty Trash, Toggle Appearance, Restart, Shut Down or Log Out.
+
+// File search needs no permission, but macOS may ask about these three folders when OpenRay
+// touches a file in one of them (docs/DESIGN.md §4.8 and §5.1). The texts name every way it can.
+INFOPLIST_KEY_NSDesktopFolderUsageDescription = OpenRay shows icons and previews of the files that Search Files finds in your Desktop folder, moves a file to the Trash when you ask it to, and reads the folder if you switched on the search without Spotlight.
+INFOPLIST_KEY_NSDocumentsFolderUsageDescription = OpenRay shows icons and previews of the files that Search Files finds in your Documents folder, moves a file to the Trash when you ask it to, and reads the folder if you switched on the search without Spotlight.
+INFOPLIST_KEY_NSDownloadsFolderUsageDescription = OpenRay shows icons and previews of the files that Search Files finds in your Downloads folder, moves a file to the Trash when you ask it to, and reads the folder if you switched on the search without Spotlight.
