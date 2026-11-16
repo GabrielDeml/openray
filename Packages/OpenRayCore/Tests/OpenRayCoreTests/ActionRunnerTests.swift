@@ -153,9 +153,9 @@ import OpenRayCore
             let ending = await run(action)
             return outcome(of: ending)
         }
-        let outcome = await running.value
+        let outcomeOfTheRun = await running.value
 
-        #expect(outcome == .keepOpen)
+        #expect(outcomeOfTheRun == .keepOpen)
         #expect(checker.requested.isEmpty)
         #expect(context.closeLauncherCount == 0)
         #expect(log.events.isEmpty)
