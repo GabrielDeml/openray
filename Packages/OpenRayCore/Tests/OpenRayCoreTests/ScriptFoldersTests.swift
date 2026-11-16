@@ -63,8 +63,14 @@ import OpenRayCore
         #expect(location(of: "/Users/me/Library/Mobile Documents Backup") == nil)
     }
 
+    // One level below a script folder is read too, and that is the protected folder itself.
+    @Test func folderDirectlyAboveAProtectedLocation() {
+        #expect(location(of: "/Users/me") == .desktop)
+        #expect(location(of: "/Users/me/Library") == .iCloudDrive)
+        #expect(location(of: "/Users") == nil)
+    }
+
     @Test func foldersThatAreNotProtected() {
-        #expect(location(of: "/Users/me") == nil)
         #expect(location(of: "/Users/me/bin") == nil)
         #expect(location(of: "/Users/me/Library/Application Support/openray/Scripts") == nil)
         // Another user's Documents is not this user's to be asked about.

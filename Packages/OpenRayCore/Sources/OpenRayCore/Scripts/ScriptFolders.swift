@@ -62,8 +62,9 @@ public enum ScriptFolders {
         }
     }
 
-    /// The protected place a script folder is, or lies in. Reading such a folder makes macOS
-    /// show a Files & Folders prompt, which the settings pane warns about.
+    /// The protected place a script folder is, lies in, or is directly above. Reading such a
+    /// folder makes macOS show a Files & Folders prompt, which the settings pane warns about.
+    /// For the home folder, which is above three of them, this is the first.
     ///
     /// - Parameter home: The user's home folder, as a path.
     public static func protectedLocation(of folder: String, home: String) -> ProtectedLocation? {
@@ -75,6 +76,11 @@ public enum ScriptFolders {
             let locationPath = "\(home)/\(location.pathFromHome)"
             let locationComponents = locationPath.split(separator: "/")
             if folderComponents.starts(with: locationComponents) {
+                return location
+            }
+            // The scan reads one folder below a script folder, so the folder directly above
+            // a protected place is read into it as well.
+            if locationComponents.dropLast().elementsEqual(folderComponents) {
                 return location
             }
         }

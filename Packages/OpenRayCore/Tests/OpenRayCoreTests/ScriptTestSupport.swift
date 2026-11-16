@@ -281,8 +281,9 @@ final class FakeScriptFolderWatcher: ScriptFolderWatching {
     private struct State {
         var watchedFolders: [[String]] = []
         var stopCount = 0
-        /// What the watching that is under way wants called. nil while nothing is watched.
-        var onChange: (@Sendable () -> Void)?
+        /// What each watching that is under way wants called, by its number. A source can
+        /// have two for a moment: the one of a stream that was dropped ends late.
+        var handlers: [Int: @Sendable () -> Void] = [:]
     }
 
     private let state = Mutex(State())
@@ -300,22 +301,28 @@ final class FakeScriptFolderWatcher: ScriptFolderWatching {
     func startWatching(
         _ folders: [String], onChange: @escaping @Sendable () -> Void
     ) -> () -> Void {
-        state.withLock { state in
+        let number: Int = state.withLock { state in
             state.watchedFolders.append(folders)
-            state.onChange = onChange
+            state.handlers[state.watchedFolders.count] = onChange
+            return state.watchedFolders.count
         }
+        // Ends this watching and no other.
         return {
             self.state.withLock { state in
                 state.stopCount += 1
-                state.onChange = nil
+                state.handlers[number] = nil
             }
         }
     }
 
     /// Reports a change, as FSEvents does after a file was written.
     func fire() {
-        let onChange = state.withLock { $0.onChange }
-        onChange?()
+        let handlers: [@Sendable () -> Void] = state.withLock { state in
+            Array(state.handlers.values)
+        }
+        for handler in handlers {
+            handler()
+        }
     }
 }
 

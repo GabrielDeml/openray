@@ -52,11 +52,11 @@ public struct ScriptFolderScanner: Sendable {
     public func scan(
         folders: [String], cache: ScriptParseCache
     ) async -> (scan: ScriptScan, cache: ScriptParseCache) {
+        let roots = folders.map(ScriptFolders.withoutTrailingSlash)
         var pass = Pass(
             previousEntries: cache.entries, maximumEntriesPerFolder: maximumEntriesPerFolder,
-            currentUser: getuid())
-        for folder in folders {
-            let root = ScriptFolders.withoutTrailingSlash(folder)
+            currentUser: getuid(), scriptFolders: Set(roots))
+        for root in roots {
             pass.readFolder(root, root: root, group: nil)
         }
 
@@ -88,13 +88,15 @@ public struct ScriptFolderScanner: Sendable {
         let previousEntries: [String: ScriptParseCache.Entry]
         let maximumEntriesPerFolder: Int
         let currentUser: uid_t
+        /// Every script folder of this scan.
+        let scriptFolders: Set<String>
 
         var scripts: [ScriptCommand] = []
         var diagnostics: [ScriptDiagnostic] = []
         var entries: [String: ScriptParseCache.Entry] = [:]
         var filesRead = 0
-        /// A folder may be listed twice, or be a subfolder of another script folder. Each is
-        /// read once, or its scripts would be commands twice.
+        /// A folder may be listed twice. It is read once, or its scripts would be commands
+        /// twice.
         var foldersRead: Set<String> = []
 
         /// - Parameters:
@@ -148,7 +150,11 @@ public struct ScriptFolderScanner: Sendable {
                     // Only one level down, and not through a link: a link to a folder could
                     // lead anywhere, also back up.
                     let isInScriptFolder = group == nil
-                    if isInScriptFolder && Self.isRealFolder(path) {
+                    // A script folder that lies in this one is read on its own turn, with
+                    // the folders one level below it. Read from here, as a group of this
+                    // folder, it would lose those.
+                    let isScriptFolderItself = scriptFolders.contains(path)
+                    if isInScriptFolder && !isScriptFolderItself && Self.isRealFolder(path) {
                         readFolder(path, root: root, group: name)
                     }
                 case .other:

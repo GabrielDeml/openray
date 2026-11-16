@@ -31,7 +31,8 @@ import Observation
     /// only run after the user said yes to it here, and a launcher that is hidden answers
     /// every question with no.
     ///
-    /// - Returns: false when the user was asked and declined.
+    /// - Returns: false when the user was asked and declined, or called the action off
+    ///   before the question could be asked.
     /// - Throws: `ScriptSecurityProblem` when the file or one of its folders can be changed
     ///   by other users or is not the user's own, and `ScriptFileError` when the quarantine
     ///   could not be taken off.
@@ -44,6 +45,11 @@ import Observation
         }
         if !check.isQuarantined {
             return true
+        }
+        // Esc while the files were being looked at. A question must not come up for an
+        // action the user has just called off, and the file keeps its quarantine.
+        if Task.isCancelled {
+            return false
         }
 
         let confirmation = Confirmation(

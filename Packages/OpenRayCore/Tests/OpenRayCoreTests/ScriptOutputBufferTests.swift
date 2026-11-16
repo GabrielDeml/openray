@@ -73,6 +73,9 @@ import Testing
         // A progress bar that waits for its next step is still to be seen.
         #expect(buffer.lines.map(\.text) == ["50%"])
 
+        buffer.append("\r")
+        #expect(buffer.lines.map(\.text) == ["50%"])
+
         buffer.append("100%")
         #expect(buffer.lines.map(\.text) == ["100%"])
     }
@@ -81,7 +84,13 @@ import Testing
         #expect(texts(after: "one\r", "\ntwo") == ["one", "two"])
         #expect(texts(after: "one", "\r", "\n", "two") == ["one", "two"])
         #expect(texts(after: "one\r", "two") == ["two"])
-        #expect(texts(after: "one\r", "\r", "\ntwo") == ["", "two"])
+    }
+
+    // What a terminal layer makes of a CR LF that it is handed: `ssh -tt`, `docker exec -t`.
+    @Test func severalCarriageReturnsInARowCountAsOne() {
+        #expect(texts(after: "one\r\r\ntwo") == ["one", "two"])
+        #expect(texts(after: "one\r", "\r", "\ntwo") == ["one", "two"])
+        #expect(texts(after: "one\r\rtwo") == ["two"])
     }
 
     @Test func carriageReturnAtTheStartOfALineChangesNothing() {
@@ -181,6 +190,25 @@ import Testing
         buffer.append(almostFull + "e\u{301}")
 
         #expect(buffer.lines.map(\.text) == [almostFull, "e\u{301}"])
+    }
+
+    // A read can end between the scalars of one character.
+    @Test func characterThatArrivesInTwoPiecesIsCutAsIfItCameInOne() {
+        let almostFull = String(repeating: "x", count: ScriptOutputBuffer.maximumLineLength - 1)
+
+        var accent = ScriptOutputBuffer()
+        accent.append(almostFull + "e")
+        accent.append("\u{301}rest")
+        #expect(accent.lines.map(\.text) == [almostFull, "e\u{301}rest"])
+        #expect(accent.text == almostFull + "e\u{301}rest")
+
+        // A flag is two letters of a kind, and a third begins the next flag.
+        let roomForOneLetter = String(
+            repeating: "x", count: ScriptOutputBuffer.maximumLineLength - 4)
+        var flag = ScriptOutputBuffer()
+        flag.append(roomForOneLetter + "\u{1F1E9}")
+        flag.append("\u{1F1EA}\u{1F1EB}")
+        #expect(flag.lines.map(\.text) == [roomForOneLetter, "\u{1F1E9}\u{1F1EA}\u{1F1EB}"])
     }
 
     @Test func carriageReturnStartsALongLineOverFromItsBeginning() {

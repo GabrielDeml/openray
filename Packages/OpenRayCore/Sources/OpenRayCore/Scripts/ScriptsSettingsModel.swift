@@ -10,8 +10,8 @@ import Observation
         public var path: String
         /// The folder OpenRay made itself. It is always read and cannot be removed.
         public var isDefault: Bool
-        /// Set for a folder that is, or lies in, a place macOS asks the user about before an
-        /// app may read it. The pane warns about the question.
+        /// Set for a folder that is, lies in, or is directly above a place macOS asks the
+        /// user about before an app may read it. The pane warns about the question.
         public var protectedLocation: ScriptFolders.ProtectedLocation?
         /// Why no script of this folder is offered, as a sentence. nil for a folder that is
         /// in order, and for one that has not been looked at yet.
@@ -108,7 +108,10 @@ import Observation
     /// Looks at the folders and at the environment as they are now. The pane calls this when
     /// it appears and after the list of folders has changed. It never starts the shell.
     public func refresh() async {
-        folderProblems = await Self.problems(ofFolders: allFolderPaths)
+        let problems = await Self.problems(ofFolders: allFolderPaths)
+        // The pane has started a newer look, or is gone: this answer is for an older list.
+        if Task.isCancelled { return }
+        folderProblems = problems
 
         // A reload that is under way writes the status when it is done.
         if isReloadingEnvironment { return }

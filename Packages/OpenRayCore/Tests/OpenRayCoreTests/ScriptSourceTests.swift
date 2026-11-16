@@ -239,8 +239,8 @@ import Testing
     // folder, a log a script writes beside itself. Most reports change no script.
     @Test func reportThatChangesNoScriptYieldsNoNewList() async throws {
         try writeScriptFile("Scripts/wifi.sh", title: "Toggle Wi-Fi")
-        let source = makeSource()
-        var iterator = source.indexedItems().makeAsyncIterator()
+        try writeScriptFile("Extra/backup.sh", title: "Back Up")
+        var iterator = makeSource().indexedItems().makeAsyncIterator()
         _ = await iterator.next()
         _ = await iterator.next()
 
@@ -248,13 +248,13 @@ import Testing
         try writeScript("#!/bin/sh\necho helper\n", to: path("Scripts/helper.sh"))
         watcher.fire()
         watcher.fire()
-        // The requests are answered in order, so the list that comes next would be one of
-        // theirs if they had yielded any.
-        try writeScriptFile("Scripts/bluetooth.sh", title: "Toggle Bluetooth")
-        source.rescan()
+        // The requests are answered in order, and the two reports are scanned with the
+        // folders as they were. Had either yielded a list, it would come next and would be
+        // without the script of the folder that is added only now.
+        preferences.set([path("Extra")], for: .scriptFolders)
 
         let next = try #require(await iterator.next())
-        #expect(scriptTitles(in: next) == ["Toggle Bluetooth", "Toggle Wi-Fi"])
+        #expect(scriptTitles(in: next) == ["Toggle Wi-Fi", "Back Up"])
     }
 
     @Test func addingAndRemovingAFolderIsFollowedWithoutARestart() async throws {

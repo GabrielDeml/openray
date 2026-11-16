@@ -519,10 +519,12 @@ three lines `# @openray.schemaVersion 1`, `# @openray.title …` and
   work.
 - [ ] A script that prints without end: `yes` as a fullOutput script. The
   launcher stays responsive, ⌘. stops it at once, and OpenRay's memory in
-  Activity Monitor stays flat instead of growing with the output. After
-  about 4 MB the top of the output says "Earlier output was dropped. Only
-  the newest is kept."; let it run past 10 MB to be sure it stays so. Can
-  the output still be scrolled while it floods? The buffer keeps at most
+  Activity Monitor stays flat instead of growing with the output. Almost
+  at once the top of the output says "Earlier output was dropped. Only the
+  newest is kept.": a line counts 64 bytes besides its text, so for `yes`
+  the 4 MB are full after some 65,000 lines, about 130 KB of output. Let
+  it run for a minute to be sure it stays so. Can the output still be
+  scrolled while it floods? The buffer keeps at most
   some 65,000 lines; does a list of that many rows still scroll once the
   script is stopped?
 - [ ] One very long line: a fullOutput script with

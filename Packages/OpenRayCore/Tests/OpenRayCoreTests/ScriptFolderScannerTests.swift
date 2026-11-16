@@ -77,6 +77,23 @@ import Testing
         found.scripts.map(\.metadata.title)
     }
 
+    /// Where a scan put a script.
+    private struct ScriptCommandPlace: Equatable {
+        var path: String
+        var folder: String
+        var group: String?
+    }
+
+    /// The places of the scripts of a scan, ordered by path.
+    private func places(in found: ScriptScan) -> [ScriptCommandPlace] {
+        var scriptPlaces: [ScriptCommandPlace] = []
+        for script in found.scripts {
+            scriptPlaces.append(
+                ScriptCommandPlace(path: script.path, folder: script.folder, group: script.group))
+        }
+        return scriptPlaces.sorted { first, second in first.path < second.path }
+    }
+
     // MARK: What is found
 
     @Test func scriptsOfTheFolderAndOfItsSubfolders() async throws {
@@ -305,6 +322,22 @@ import Testing
         let found = await scanFolders([rootPath, path("Work")]).scan
 
         #expect(found.scripts.map(\.path) == [path("Work/deploy.sh")])
+    }
+
+    @Test func scriptFolderInsideAnotherKeepsItsOwnSubfolders() async throws {
+        try makeScript("Work/deploy.sh", title: "Deploy")
+        try makeScript("Work/Deep/release.sh", title: "Release")
+
+        let parentFirst = await scanFolders([rootPath, path("Work")]).scan
+        let childFirst = await scanFolders([path("Work"), rootPath]).scan
+
+        let expected = [
+            ScriptCommandPlace(
+                path: path("Work/Deep/release.sh"), folder: path("Work"), group: "Deep"),
+            ScriptCommandPlace(path: path("Work/deploy.sh"), folder: path("Work"), group: nil),
+        ]
+        #expect(places(in: parentFirst) == expected)
+        #expect(places(in: childFirst) == expected)
     }
 
     @Test func foldersAreReadInTheOrderGiven() async throws {

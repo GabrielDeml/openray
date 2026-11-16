@@ -118,6 +118,25 @@ import OpenRayCore
         #expect(context.confirmations.count == 1)
     }
 
+    @Test @MainActor func downloadedScriptOfAnActionThatWasCalledOffIsNotAskedAbout() async throws {
+        let script = try makeScript()
+        try markAsDownloaded(script.path)
+        let context = FakeActionContext()
+        context.confirmationAnswer = true
+        let runs = makeRuns()
+
+        // Esc cancels the task an action runs in.
+        let calledOff = Task { () async throws -> Bool in
+            withUnsafeCurrentTask { task in task?.cancel() }
+            return try await runs.isCleared(script, context: context)
+        }
+        let mayRun = try await calledOff.value
+
+        #expect(!mayRun)
+        #expect(context.confirmations.isEmpty)
+        #expect(ScriptSecurity.isQuarantined(script.path))
+    }
+
     // MARK: Runs
 
     @Test @MainActor func startedRunIsTheLastOne() async throws {

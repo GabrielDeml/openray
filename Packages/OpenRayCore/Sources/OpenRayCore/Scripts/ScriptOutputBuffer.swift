@@ -107,7 +107,18 @@ public struct ScriptOutputBuffer: Sendable {
             beginLine(continuingLine: false)
         }
 
+        // The piece before this one may have ended inside a character: a letter whose accent
+        // comes now, or the first half of a flag. The two are placed together, as they would
+        // be had they arrived together.
         var rest = segment
+        var rejoined = ""
+        if let unfinished = unfinishedCharacter(before: segment) {
+            lines[lines.count - 1].text.removeLast()
+            keptBytes -= unfinished.utf8.count
+            rejoined = String(unfinished) + segment
+            rest = rejoined[...]
+        }
+
         while !rest.isEmpty {
             let last = lines.count - 1
             let room = Self.maximumLineLength - lines[last].text.utf8.count
@@ -128,6 +139,20 @@ public struct ScriptOutputBuffer: Sendable {
             keptBytes += piece.utf8.count
             rest = rest[piece.endIndex...]
         }
+    }
+
+    /// The last character of the line that is being written, when the segment begins with
+    /// more of that same character.
+    private func unfinishedCharacter(before segment: Substring) -> Character? {
+        guard let lastCharacter = lines[lines.count - 1].text.last,
+            let firstScalar = segment.unicodeScalars.first
+        else { return nil }
+
+        // Whether a scalar belongs to the character before it depends on that character and
+        // on the scalar, and on nothing that follows.
+        var joined = String(lastCharacter)
+        joined.unicodeScalars.append(firstScalar)
+        return joined.count == 1 ? lastCharacter : nil
     }
 
     /// As much of the beginning of the text as fits into this many UTF-8 bytes, in whole
@@ -158,10 +183,9 @@ public struct ScriptOutputBuffer: Sendable {
     }
 
     private mutating func carriageReturn() {
-        if endsWithCarriageReturn {
-            // The CR before this one was not part of a CR LF either.
-            restartLine()
-        }
+        // Nothing is emptied yet: that waits for text to write over the line. Several CRs in
+        // a row count as one, so the CR CR LF that a terminal layer makes of a CR LF still
+        // ends a line with its text in it.
         endsWithCarriageReturn = true
     }
 
