@@ -3,8 +3,8 @@ import IOKit.pwr_mgt
 import OpenRayCore
 
 /// What the system commands do to this Mac (docs/DESIGN.md §4.2.10): sleep through IOKit, the
-/// power commands, Empty Trash and the appearance through Apple events, and quitting through
-/// `NSRunningApplication`.
+/// power commands, Empty Trash and the appearance through Apple events, quitting through
+/// `NSRunningApplication`, and Lock Screen through a key press that the paste host posts.
 final class MacSystemControl: SystemControl {
     enum ControlError: Error, LocalizedError {
         case sleepRefused(IOReturn)
@@ -22,9 +22,12 @@ final class MacSystemControl: SystemControl {
     }
 
     private let appleEvents: AppleEventSender
+    /// The one place key events are posted from. Lock Screen is a key press.
+    private let pasteHost: any PasteHost
 
-    init(appleEvents: AppleEventSender) {
+    init(appleEvents: AppleEventSender, pasteHost: any PasteHost) {
         self.appleEvents = appleEvents
+        self.pasteHost = pasteHost
     }
 
     // MARK: Power, Trash, appearance
@@ -36,6 +39,10 @@ final class MacSystemControl: SystemControl {
         if status != kIOReturnSuccess {
             throw ControlError.sleepRefused(status)
         }
+    }
+
+    func lockScreen() {
+        pasteHost.post(.lockScreen)
     }
 
     func restart() async throws {

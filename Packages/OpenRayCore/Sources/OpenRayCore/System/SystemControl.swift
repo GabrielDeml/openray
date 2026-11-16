@@ -18,6 +18,8 @@ public struct RunningApp: Sendable, Hashable {
 /// a fake in its place, so that no test ever puts the Mac to sleep.
 @MainActor public protocol SystemControl: AnyObject, Sendable {
     func sleep() throws
+    /// Locks the screen, as ⌃⌘Q does.
+    func lockScreen()
     func restart() async throws
     func shutDown() async throws
     func logOut() async throws
@@ -34,4 +36,13 @@ public struct RunningApp: Sendable, Hashable {
     func forceQuit(_ app: RunningApp)
     /// Asks every regular app to quit, except Finder and OpenRay.
     func quitAllApps()
+}
+
+extension KeyChord {
+    /// What Lock Screen presses: ⌃⌘Q, the shortcut of Lock Screen in the Apple menu. macOS
+    /// has no public call that locks the screen, so the command types the shortcut. Whether
+    /// macOS locks for a key press that an app made has not been tried on a Mac yet
+    /// (docs/DESIGN.md §8, item 8).
+    public static let lockScreen = KeyChord(
+        keyCode: VirtualKey.ansiQ, modifiers: [.control, .command], characters: "q")
 }

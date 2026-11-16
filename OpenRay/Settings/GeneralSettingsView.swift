@@ -148,7 +148,7 @@ struct GeneralSettingsView: View {
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(row.permission.title)
-                        Text(row.commandTitles.formatted(.list(type: .and)))
+                        Text(row.summary)
                             .font(.callout)
                             .foregroundStyle(.secondary)
                     }

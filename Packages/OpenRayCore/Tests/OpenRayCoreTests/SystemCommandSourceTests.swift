@@ -3,7 +3,7 @@ import Testing
 @testable import OpenRayCore
 
 /// Records what the system commands ask for and does none of it.
-@MainActor private final class FakeSystemControl: SystemControl {
+@MainActor final class FakeSystemControl: SystemControl {
     struct SleepRefused: Error {}
 
     private(set) var calls: [String] = []
@@ -26,6 +26,7 @@ import Testing
         calls.append("sleep")
     }
 
+    func lockScreen() { calls.append("lockScreen") }
     func restart() async throws { calls.append("restart") }
     func shutDown() async throws { calls.append("shutDown") }
     func logOut() async throws { calls.append("logOut") }
@@ -75,8 +76,9 @@ import Testing
 
         #expect(
             commands.map(\.id.rawValue) == [
-                "system:sleep", "system:restart", "system:shutDown", "system:logOut",
-                "system:emptyTrash", "system:toggleAppearance", "system:quitAll",
+                "system:sleep", "system:lockScreen", "system:restart", "system:shutDown",
+                "system:logOut", "system:emptyTrash", "system:toggleAppearance",
+                "system:quitAll",
             ])
         #expect(commands.allSatisfy { $0.kindLabel == "System" })
     }
@@ -101,6 +103,31 @@ import Testing
         await #expect(throws: FakeSystemControl.SleepRefused.self) {
             _ = try await action.perform(context)
         }
+    }
+
+    // The screen is locked by a key press, which macOS only lets a trusted app make.
+    @Test func lockScreenNeedsAccessibilityAndAsksNothing() async throws {
+        let item = try await command("lockScreen")
+        let action = try onlyAction(of: item)
+
+        #expect(item.title == "Lock Screen")
+        #expect(item.alternateNames.map(\.text) == ["Lock"])
+        #expect(action.confirmation == nil)
+        #expect(action.requiredPermissions == [.accessibility])
+
+        let outcome = try await action.perform(context)
+
+        #expect(outcome == .closeLauncher)
+        #expect(context.closeLauncherCount == 1)
+        #expect(control.calls == ["lockScreen"])
+    }
+
+    @Test func lockScreenChordIsControlCommandQ() {
+        let chord = KeyChord.lockScreen
+
+        #expect(chord.keyCode == 0x0C)  // kVK_ANSI_Q
+        #expect(chord.modifiers == [.control, .command])
+        #expect(chord.characters == "q")
     }
 
     @Test(arguments: ["restart", "shutDown", "logOut"])

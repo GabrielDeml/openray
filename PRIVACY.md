@@ -100,8 +100,9 @@ If the database cannot be read, OpenRay sets it aside under a name ending in
 The app's preferences
 (`~/Library/Preferences/io.github.gabrieldeml.openray.plist`) hold the hotkey,
 which onboarding steps you have seen, the extra folders you added for app
-search, whether the hint about pasting has been shown, and the model and
-effort chosen for Quick AI.
+search, whether the hint about pasting has been shown, the model and effort
+chosen for Quick AI, and the gap and the room for Stage Manager that the
+window commands leave.
 
 Sparkle keeps its own settings in the same place: whether to check and to
 install automatically, when it last checked, and a version you chose to skip.
@@ -130,9 +131,11 @@ private, so that macOS stores `<private>` in their place. The exceptions are
 counts, status and error codes, the names of OpenRay's own commands, screens,
 settings and database queries, the identifier of a system app that a command
 is sent to, the type of what was put on the clipboard, the name of the model,
-the ID Anthropic gives a request and how the request ended, and the updater's
-error message. What you type, your questions, the answers and the API key are
-not logged.
+the ID Anthropic gives a request and how the request ended, the updater's
+error message, and why a window command moved no window, which is one of a
+handful of fixed words such as `fullScreen`. What you type, your questions,
+the answers and the API key are not logged, and a window command logs neither
+the window's title nor its app.
 
 ## What is not kept
 
@@ -144,6 +147,20 @@ not logged.
   build contains a test window, opened only with a launch argument, that
   calls the clipboard when one of its buttons is pressed. Released builds do
   not contain it.)
+- **The windows of other apps.** A window command, such as Left Half, needs
+  the Accessibility permission. With it, OpenRay reads the position and the
+  size of the front window of the app you opened OpenRay over, whether it is
+  an ordinary window, whether its size can be changed and whether it is full
+  screen, and then moves it. It does not read the window's title or what is
+  in it. An app built on Chromium or Electron animates such a move unless an
+  accessibility switch of the app is off, so OpenRay turns that switch off
+  for the move and on again afterwards. Where a window was before OpenRay
+  moved it is remembered for Restore Window, in memory only, until that app
+  or OpenRay quits. To leave room for Stage Manager, OpenRay also reads from
+  the preferences of macOS whether Stage Manager is on and which edge of the
+  screen the Dock is on.
+- **Lock Screen** presses ⌃⌘Q for you, which also needs the Accessibility
+  permission. Nothing is read and nothing is kept.
 
 ## Removing everything
 

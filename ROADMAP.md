@@ -38,6 +38,12 @@ installing OpenRay with one command, is met once the maintainer has worked
 through [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md) and pushed the first tag.
 The demo is on that list too.
 
+Of milestone 7, window management and Lock Screen are built and not released.
+They were built without moving a real window or locking the screen, so they
+have their own block of manual checks in the release checklist. File search
+and snippets are not built yet. Each of the three can ship as a release of its
+own.
+
 ## Built ahead of the feature that needs it
 
 Some shared pieces land earlier than the first feature that uses them, so that
@@ -94,9 +100,11 @@ The full list, with the milestone each must be settled by, is in section 8 of
   described in the design doc on macOS 26 and 27 before any clipboard-history
   work. If even polling for changes triggers the alert, clipboard history
   cannot ship as designed.
-- **Lock Screen (milestone 7):** it depends on a synthetic keyboard shortcut
-  locking the screen, which is unconfirmed. If it does not work, Lock Screen
-  does not ship.
+- **Lock Screen (milestone 7):** the command is built. It presses ⌃⌘Q for
+  the user, and whether macOS locks the screen for a key press that an app
+  made is still unconfirmed: it has to be tried by hand on macOS 26 and 27.
+  If it does not work, the command is removed before the release that would
+  carry it. No private API takes its place.
 - **Notarisation (milestone 6):** the release job that signs and notarises is
   written and has never run. It needs a paid Apple Developer account and the
   rest of the one-time setup in [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md)

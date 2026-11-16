@@ -13,6 +13,8 @@ public enum Log {
     /// The updater. Sparkle logs its own work under its own subsystem; this is what OpenRay
     /// has to say about it.
     public static let updates = Logger(subsystem: AppInfo.bundleIdentifier, category: "updates")
+    /// Window commands that moved no window, and why. Window titles are never logged.
+    public static let windows = Logger(subsystem: AppInfo.bundleIdentifier, category: "windows")
 }
 
 /// The app's single signposter and the names of its intervals, viewed in Instruments against the

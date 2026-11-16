@@ -13,10 +13,15 @@ copies it, and ⌘Return pastes it into the app you came from once OpenRay has
 the Accessibility permission. Type a question and press Tab to ask Claude with
 your own Anthropic API key: the answer streams into the launcher, and
 follow-ups stay in the same thread. The key is kept in the macOS Keychain.
-Aliases, quicklinks, launch at login, the API key and updates are set up in its
-settings window, which also shows the version and the licences of what OpenRay
-is built with. A released build keeps itself up to date if you let it; a Debug
-build from source never looks for updates.
+Window commands such as Left Half, Maximize Window and Move Window to Next
+Display move the front window of the app you are in, and Restore Window puts
+it back; they need the Accessibility permission too. So does Lock Screen,
+which presses ⌃⌘Q for you; whether macOS locks the screen for that has not
+been tried yet, and the command goes if it does not. Aliases, quicklinks,
+launch at login, the API key, the gap between tiled windows and updates are
+set up in its settings window, which also shows the version and the licences
+of what OpenRay is built with. A released build keeps itself up to date if you
+let it; a Debug build from source never looks for updates.
 
 OpenRay sends no telemetry. [PRIVACY.md](PRIVACY.md) lists what it sends and
 what it stores.
