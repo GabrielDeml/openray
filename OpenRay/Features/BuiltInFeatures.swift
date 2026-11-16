@@ -15,6 +15,7 @@ enum BuiltInFeatures {
             QuicklinksFeature(),
             SnippetsFeature(),
             FileSearchFeature(),
+            ScriptsFeature(),
             CalculatorFeature(),
             QuickAIFeature(),
             UpdatesFeature(),

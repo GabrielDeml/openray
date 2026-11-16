@@ -25,10 +25,20 @@ Search Files finds files and folders by name through Spotlight: Return opens
 one, and ⌘K has Show in Finder, Open With, a Quick Look preview, Copy Path
 and Move to Trash. These two are new and have only been run by their tests:
 no snippet has been pasted into a real app yet, and Search Files has searched
-a stand-in for Spotlight, never a real home folder. Aliases, quicklinks,
-snippets, launch at login, the API key, the gap between tiled windows, where
-Search Files looks and updates are set up in its settings window, which also
-shows the version and the licences of what OpenRay is built with. A released
+a stand-in for Spotlight, never a real home folder. Script commands make
+commands of your own scripts: a file in OpenRay's Scripts folder, or in a
+folder you add, becomes a command once a few comment lines at its top give it
+a title ([Script commands](#script-commands) below). A script runs quietly and
+shows its last line of output when it is done, or shows everything it prints
+while it runs, and it can ask for up to three pieces of text first. Scripts
+run as you, with everything you are allowed to do; OpenRay puts them in no
+sandbox. They are the newest part and have only been run by their tests, on
+scripts the tests wrote for themselves: none of their screens has been seen
+yet, and nobody has run a script of their own from the launcher. Aliases,
+quicklinks, snippets, launch at login, the API key, the gap between tiled
+windows, where Search Files looks, the script folders and updates are set up
+in its settings window, which also shows the version and the licences of what
+OpenRay is built with. A released
 build keeps itself up to date if you let it; a Debug build from source never
 looks for updates.
 
@@ -69,6 +79,37 @@ The first build downloads the two dependencies,
 [GRDB](https://github.com/groue/GRDB.swift) and
 [Sparkle](https://github.com/sparkle-project/Sparkle), so it needs a network
 connection.
+
+## Script commands
+
+A script becomes a command when it is in a script folder and says what it is
+in comment lines at its top:
+
+```zsh
+#!/bin/zsh
+# @openray.schemaVersion 1
+# @openray.title Show Disk Space
+# @openray.mode fullOutput
+
+df -h /
+```
+
+Run Open Scripts Folder in the launcher to get to the folder, which is
+`~/Library/Application Support/io.github.gabrieldeml.openray/Scripts` for a
+released build, save the file there and make it executable; OpenRay offers
+Make Executable for a script that is not. It shows up in search a moment
+later, under its title. More folders can be added in Settings › Scripts.
+
+`mode` is `silent`, for a script whose last line of output is shown when it
+is done, or `fullOutput`, for one whose output is shown while it runs. The
+lines `icon`, `description`, `keywords`, `argument1` to `argument3`,
+`timeout` and `needsConfirmation` are optional;
+[section 4.10 of the design](docs/DESIGN.md) has them all, and what OpenRay
+refuses to run. A file that should be a command and is not is listed under
+Script Diagnostics in the launcher, with the reason.
+
+A script is your own program. It runs as you, with the environment of your
+login shell, and OpenRay does not limit what it does.
 
 ## Test
 

@@ -68,7 +68,12 @@ public struct KeyRouter: Sendable {
         if context.confirmationOpen { return confirmationIntent(for: chord, in: context) }
         // The launcher's own keys win over the shortcuts of the selected item's actions.
         if let intent = launcherKeyIntent(for: chord, in: context) { return intent }
-        return itemShortcutIntent(for: chord, in: context)
+
+        guard let action = itemShortcutAction(for: chord, in: context) else { return nil }
+        // A shortcut acts once for each press, like Return. ⌘R held on the output of a
+        // script that is over in a moment would run it again for as long as the key is down.
+        if context.keyIsRepeating { return nil }
+        return .performAction(action)
     }
 
     /// Whether the launcher keeps `chord` from AppKit although it has no intent for it.
@@ -79,14 +84,17 @@ public struct KeyRouter: Sendable {
     ///
     /// Every other key is kept while it has nowhere sensible to go: under a confirmation, where
     /// it would edit the query behind the question, and on a screen that hides the search
-    /// field, where AppKit would find no one to take it and beep. A held Return and a held
-    /// ⌘1 to ⌘9 are kept as well: they have no intent, and the field editor would end editing
-    /// on the one and beep at the other.
+    /// field, where AppKit would find no one to take it and beep. A held Return, a held
+    /// ⌘1 to ⌘9 and a held shortcut of the selected item are kept as well: they have no
+    /// intent, and the field editor would end editing on the first and beep at the others.
     public func swallows(_ chord: KeyChord, in context: Context) -> Bool {
         if isQuit(chord) { return true }
         // An input method that is composing gets all its keys, as in `intent(for:in:)`.
         if context.hasMarkedText { return false }
-        if context.keyIsRepeating && (isReturn(chord) || isRowDigit(chord)) { return true }
+        if context.keyIsRepeating {
+            if isReturn(chord) || isRowDigit(chord) { return true }
+            if itemShortcutAction(for: chord, in: context) != nil { return true }
+        }
         return context.confirmationOpen || context.searchFieldHidden
     }
 
@@ -199,7 +207,8 @@ public struct KeyRouter: Sendable {
         }
     }
 
-    private func itemShortcutIntent(for chord: KeyChord, in context: Context) -> LauncherIntent? {
+    /// The action of the selected item whose shortcut the chord triggers.
+    private func itemShortcutAction(for chord: KeyChord, in context: Context) -> ActionID? {
         // Two shortcuts can match one key press when they differ only in what they record of the
         // key. Dictionary order changes from run to run, so the lowest action ID wins.
         var lowest: ActionID?
@@ -208,7 +217,6 @@ public struct KeyRouter: Sendable {
             if let current = lowest, current.rawValue <= action.rawValue { continue }
             lowest = action
         }
-        guard let lowest else { return nil }
-        return .performAction(lowest)
+        return lowest
     }
 }

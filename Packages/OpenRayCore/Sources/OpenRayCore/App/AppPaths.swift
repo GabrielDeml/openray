@@ -14,4 +14,9 @@ public struct AppPaths: Sendable, Equatable {
         applicationSupportDirectory = applicationSupportRoot.appending(
             path: bundleIdentifier, directoryHint: .isDirectory)
     }
+
+    /// The folder scripts are read from before any the user adds (docs/DESIGN.md §4.10).
+    public var scriptsDirectory: URL {
+        applicationSupportDirectory.appending(path: "Scripts", directoryHint: .isDirectory)
+    }
 }

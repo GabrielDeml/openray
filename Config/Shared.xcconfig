@@ -70,10 +70,12 @@ GENERATE_INFOPLIST_FILE = YES
 INFOPLIST_FILE = Config/Info.plist
 INFOPLIST_KEY_LSApplicationCategoryType = public.app-category.productivity
 INFOPLIST_KEY_LSUIElement = YES
-INFOPLIST_KEY_NSAppleEventsUsageDescription = OpenRay sends commands to Finder, System Events and the login window when you run Empty Trash, Toggle Appearance, Restart, Shut Down or Log Out.
+INFOPLIST_KEY_NSAppleEventsUsageDescription = OpenRay sends commands to Finder, System Events and the login window when you run Empty Trash, Toggle Appearance, Restart, Shut Down or Log Out. A script you run from OpenRay may also send commands to other apps.
 
 // File search needs no permission, but macOS may ask about these three folders when OpenRay
 // touches a file in one of them (docs/DESIGN.md §4.8 and §5.1). The texts name every way it can.
-INFOPLIST_KEY_NSDesktopFolderUsageDescription = OpenRay shows icons and previews of the files that Search Files finds in your Desktop folder, moves a file to the Trash when you ask it to, and reads the folder if you switched on the search without Spotlight.
-INFOPLIST_KEY_NSDocumentsFolderUsageDescription = OpenRay shows icons and previews of the files that Search Files finds in your Documents folder, moves a file to the Trash when you ask it to, and reads the folder if you switched on the search without Spotlight.
-INFOPLIST_KEY_NSDownloadsFolderUsageDescription = OpenRay shows icons and previews of the files that Search Files finds in your Downloads folder, moves a file to the Trash when you ask it to, and reads the folder if you switched on the search without Spotlight.
+// Two of them are scripts: a script folder the user added there is read, and what a script
+// does when it runs counts as done by OpenRay (§4.10).
+INFOPLIST_KEY_NSDesktopFolderUsageDescription = OpenRay shows icons and previews of the files that Search Files finds in your Desktop folder, moves a file to the Trash when you ask it to, and reads the folder if you switched on the search without Spotlight or added a script folder there. A script you run from OpenRay may also use files in it.
+INFOPLIST_KEY_NSDocumentsFolderUsageDescription = OpenRay shows icons and previews of the files that Search Files finds in your Documents folder, moves a file to the Trash when you ask it to, and reads the folder if you switched on the search without Spotlight or added a script folder there. A script you run from OpenRay may also use files in it.
+INFOPLIST_KEY_NSDownloadsFolderUsageDescription = OpenRay shows icons and previews of the files that Search Files finds in your Downloads folder, moves a file to the Trash when you ask it to, and reads the folder if you switched on the search without Spotlight or added a script folder there. A script you run from OpenRay may also use files in it.

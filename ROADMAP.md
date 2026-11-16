@@ -46,6 +46,17 @@ the three features can ship as a release of its own. A snippet's
 `{clipboard}` placeholder does not wait for clipboard history: it reads the
 clipboard once, when the snippet is pasted.
 
+Milestone 8 is built and not released: a script in the Scripts folder, or in
+a folder added in Settings, shows up as a command without a restart, runs
+silently or with its output on a screen, and takes up to three text
+arguments. It was built without launching OpenRay and without starting a
+login shell: the only scripts that ever ran were ones its tests wrote for
+themselves, in temporary folders. So its test, a script dropped in the folder
+that runs from the launcher and shows its output, has not been met by a
+person yet. The tests cover the pieces: finding the script, running it and
+what the screens do with its output. Seeing them work together is a block of
+manual checks in the release checklist.
+
 ## Built ahead of the feature that needs it
 
 Some shared pieces land earlier than the first feature that uses them, so that
@@ -115,6 +126,12 @@ The full list, with the milestone each must be settled by, is in section 8 of
   made is still unconfirmed: it has to be tried by hand on macOS 26 and 27.
   If it does not work, the command is removed before the release that would
   carry it. No private API takes its place.
+- **Scripts (milestone 8):** a script runs with the environment of the
+  user's login shell, which OpenRay asks for by starting that shell once.
+  Whether that works with zsh, bash and fish, which app macOS names when a
+  script asks for a permission, and whether macOS lets a downloaded script
+  run at all could not be tried while it was built. All three have to be
+  seen on a Mac before the release that carries script commands.
 - **Notarisation (milestone 6):** the release job that signs and notarises is
   written and has never run. It needs a paid Apple Developer account and the
   rest of the one-time setup in [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md)

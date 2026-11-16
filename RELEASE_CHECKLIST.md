@@ -22,6 +22,12 @@ them. Their checks are under "New in
 milestone 7" in section 4: a block for the window commands and Lock Screen,
 one for snippets and one for file search.
 
+Milestone 8 has added script commands, built the same way again: OpenRay was
+not launched, no login shell was started, and the only scripts that ever ran
+were ones the tests wrote into temporary folders. Their checks are under "New
+in milestone 8" in section 4, and what their first release fixes for good is
+in section 1.
+
 Work through sections 1 and 2 once. Sections 3 and 4 are for every release.
 
 ## 1. Confirm before the first tag
@@ -64,11 +70,13 @@ old identifier.
   long as the repository stays where it is. The release job checks the cask's
   `url` against the repository it runs in.
 - [ ] **What the first release carries.** `CHANGELOG.md` has window
-  management, Lock Screen, snippets and file search under Unreleased, beside
-  everything of v0.1. The roadmap has each feature of milestone 7 ship as a
-  release of its own: move the four entries to the versions they ship in, or
-  leave them where they are if v0.1 is to have them. The status paragraph of
-  `README.md` names all four as well.
+  management, Lock Screen, snippets, file search and script commands under
+  Unreleased, beside everything of v0.1. The roadmap has each feature of
+  milestone 7 ship as a release of its own, and script commands are a
+  milestone of their own: move the five entries to the versions they ship
+  in, or leave them where they are if v0.1 is to have them. The status
+  paragraph of `README.md` names all five as well, and `README.md` has a
+  section on writing a script command.
 - [ ] **The snippet table** (item 33). The first release that has snippets
   fixes it, because an installed copy runs the migration `m7_snippets` once
   and never again. Default: an integer key, `row_id`, that the search index
@@ -82,6 +90,22 @@ old identifier.
   stored under (`snippet:<uuid>`, `file:<path>`,
   `command:files.openWith.<app path>`) and the shape of the `files.scope`
   preference (design §4.2.1, §4.3.4).
+- [ ] **Script commands: what their first release fixes** (item 34). People
+  will write scripts for it, and those have to keep working. Fixed from then
+  on: the header (`@openray.schemaVersion 1`; the keys `title`, `mode` with
+  `silent` and `fullOutput`, `icon`, `description`, `keywords`, `argument1`
+  to `argument3` with `placeholder` and `optional`, `timeout` and
+  `needsConfirmation`; the four comment prefixes; the first 8 KiB), what a
+  script is handed (its arguments as argv, the folder of its file as working
+  directory, `OPENRAY`, `OPENRAY_VERSION` and `OPENRAY_SCRIPT_PATH`), and
+  the place of the default folder. A later version can still add keys, which
+  this one skips, and a `schemaVersion 2`, which this one refuses with a
+  line in Script Diagnostics. The same release fixes the IDs that picks and
+  aliases are stored under (`script:<absolute path>`,
+  `command:scripts.openFolder` and the four beside it) and the
+  `scripts.folders` preference, a list of the added folders as absolute
+  paths (design §4.10, §4.3.4). To change any of it, do so before that
+  release, in `Packages/OpenRayCore/Sources/OpenRayCore/Scripts`.
 - [ ] **Lock Screen: keep it or take it out** (item 8). It ships only if the
   check in section 4 shows that it locks the screen. If it does not, remove
   the command (`lockScreen` in `SystemCommandSource`, `SystemControl` and
@@ -95,9 +119,9 @@ In this order. Later steps need what earlier ones make.
 
 ### Get CI green
 
-`.github/workflows/ci.yml` passed on 2026-11-15 for milestones 1 to 6 and
-for the window commands and Lock Screen, and both are on `main`. The runner
-had Xcode 26.6 with Swift 6.3.3, older than what everything was written with.
+`.github/workflows/ci.yml` passed on 2026-11-15 for milestones 1 to 7,
+clipboard history apart, and all of that is on `main`. The runner had
+Xcode 26.6 with Swift 6.3.3, older than what everything was written with.
 Two runs before that stopped in "Test core package", both on the same test:
 first on a `Task` whose result type the runner's compiler could not infer,
 then on a local constant named like the helper that the closure above it
@@ -110,14 +134,15 @@ calls. The newer compiler accepts both.
   `-Xswiftc -enable-testing`; "Build app (Release)" with Xcode 26 merging the
   partial `Config/Info.plist`; and `AXWindowController.swift` with the typed
   throws of `Windows/`.
-- [ ] Read the first run that has snippets and file search. The likeliest
-  place for it to fail is `Files/SpotlightSearcher.swift` in the package: an
-  actor on a dispatch queue of its own that calls `MDQuery` and uses the
-  `kMDItem…` and `kMDQueryScope…` constants of CoreServices. If the compiler
-  refuses the constants, string literals with the same text do the same,
-  which is what `PermissionCenter` does for `kAXTrustedCheckOptionPrompt`.
-  `FolderWalk` is `@concurrent`, and the tasks of the new models are closures
-  handed to `Task`, the kind of line the first failed run stopped on.
+- [x] A green run with snippets and file search. The runner's compiler took
+  `Files/SpotlightSearcher.swift` as it is: an actor on a dispatch queue of
+  its own that calls `MDQuery` and uses the `kMDItem…` and `kMDQueryScope…`
+  constants of CoreServices.
+- [ ] Read the first run that has script commands. It is the first one whose
+  tests start processes, so look at the time the script suites take there
+  and at any test that ran into its time limit. `PosixScriptRunner.swift`
+  uses `posix_spawn_file_actions_addchdir`, which the SDK has from macOS 26
+  on, and `SF_DATALESS` from `sys/stat.h`.
 - [ ] `shellcheck Scripts/*.sh` and `actionlint` once. Neither was installed
   where the scripts and the workflows were written; they were only parsed
   (`bash -n`, and as YAML).
@@ -419,6 +444,249 @@ was built without launching the app, sending an Apple event, raising a
 permission prompt or calling the Claude API. The numbers in brackets are the
 open questions of section 8 of the design; settle each there once it has an
 answer.
+
+### New in milestone 8
+
+Script commands (design §4.10) were built without launching OpenRay, without
+starting a login shell and without running any script but the ones the tests
+wrote for themselves. So none of this has been seen. The number in brackets
+is item 18 where the check answers part of it.
+
+Write the scripts for these checks yourself, in the Scripts folder, and keep
+them to things that do no harm: `echo`, `sleep`, `date`. Each needs the
+three lines `# @openray.schemaVersion 1`, `# @openray.title …` and
+`# @openray.mode silent` or `fullOutput` under its `#!` line.
+
+- [ ] The Scripts folder. After the first launch
+  `~/Library/Application Support/<bundle id>/Scripts` exists with mode 700
+  (`ls -ld`). "Open Scripts Folder" opens it in Finder. Delete the folder
+  while OpenRay runs and use the command again: the folder is made again,
+  and a script saved into it then shows up.
+- [ ] A script appears, changes and goes without a restart. Save an
+  executable script into the folder: it is in search under its title within
+  about a second. Change the title in an editor and save: the row follows.
+  Delete the file: the row goes. A script in a subfolder shows the
+  subfolder's name at the end of its row, and one two folders down is not
+  listed. Put the Mac to sleep and wake it: a script saved right afterwards
+  still shows up.
+- [ ] What is no script. A file without `@openray.` lines in the folder is
+  neither in search nor in Script Diagnostics. A script is found by its
+  title and by each of its keywords, and Settings › Commands lists it, where
+  it can be given an alias or switched off.
+- [ ] Icons of all three kinds, in a row and on the argument screen: an
+  emoji, `sf:wifi`, and `icon.png` for a picture beside the script. A
+  picture that is missing, and `../icon.png`, give the terminal symbol.
+- [ ] A silent script. One that prints two lines: the launcher closes and
+  the HUD shows the second. One that prints nothing: the HUD shows its
+  title. One that ends with `exit 3`: "Script failed", and "Show Last Script
+  Output" then shows what it printed and "Exit code 3". For the first script
+  after OpenRay started, how long is the wait while the shell is asked?
+- [ ] A silent script that sleeps ten seconds. Open the launcher again
+  meanwhile and use it: the HUD still comes when the script is done. "Show
+  Last Script Output" while it runs says "Running…", and Esc there stops it.
+- [ ] A fullOutput script that prints a line every second. The lines arrive
+  as they are printed and the view stays at the bottom; ↑ and ↓ scroll;
+  the status line says "Running…" and then "Finished". Text in colour
+  (`printf '\033[31mred\033[0m\n'`) arrives without the codes, and a
+  progress line written with `\r` stays one line. A script that writes to
+  stdout and stderr in turn shows both in the order written.
+- [ ] The keys of the output screen, where the search field is hidden. ⌘⇧C
+  copies the output and the launcher stays while the script runs; ⌘. stops
+  the script and does not close the launcher, although AppKit knows that
+  chord as Cancel; ⌘R runs it again once it is over; ⌘O opens the file in
+  an editor; ⌘K lists all of them, and Return copies. ⌘O works on a script's
+  row in search as well.
+- [ ] A held key acts once. A fullOutput script with
+  `date >> runs.txt; wc -l < runs.txt`, which counts its own runs in a file
+  beside itself: hold ⌘R for two seconds once it is over. The count goes up
+  by one, not by ten, and nothing beeps. The same on a row in search: ⌘O
+  held opens the file once.
+- [ ] Stopping by leaving. Esc while the script runs stops it ("Script
+  stopped") and only the next Esc leaves. Delete and ⌘[ do the same: the
+  first stops the script and leaves the screen where it is, the second
+  goes back. Start it again, hide the launcher with the hotkey and show it
+  again: the root is back, `pgrep` no longer finds the script, and "Show
+  Last Script Output" has what it printed until then.
+- [ ] Behind a hidden launcher. A fullOutput script that sleeps a minute
+  and prints a line at its end. Start it and click into another app, so
+  that the launcher hides, and do not open the launcher: `pgrep` still
+  finds the script, as design §4.10 says it should. Wait for it to end and
+  open "Show Last Script Output": the whole output and "Finished". Then the
+  same with a script that runs `open -a TextEdit` and goes on printing: it
+  must not be stopped when TextEdit comes to the front. Is a script that
+  the next press of the hotkey stops, without a word, what you want? If
+  not, that is the "runs on without its screen" of the design's future
+  work.
+- [ ] A script that prints without end: `yes` as a fullOutput script. The
+  launcher stays responsive, ⌘. stops it at once, and OpenRay's memory in
+  Activity Monitor stays flat instead of growing with the output. Almost
+  at once the top of the output says "Earlier output was dropped. Only the
+  newest is kept.": a line counts 64 bytes besides its text, so for `yes`
+  the 4 MB are full after some 65,000 lines, about 130 KB of output. Let
+  it run for a minute to be sure it stays so. Can the output still be
+  scrolled while it floods? The buffer keeps at most
+  some 65,000 lines; does a list of that many rows still scroll once the
+  script is stopped?
+- [ ] One very long line: a fullOutput script with
+  `base64 -i /usr/share/dict/words`, which prints megabytes without a line
+  end, and one that prints minified JSON. The launcher must stay
+  responsive while it arrives and ⌘. must get through; the output shows as
+  blocks of about 4 KiB, each beginning on a new row. ⌘⇧C and a paste into
+  an editor give one line, with no line ends that the script did not
+  print.
+- [ ] Pictures for a terminal: a script that prints
+  `printf '\033Pq#0;2;0;0;0#0~~\033\\after\n'` shows "after" and nothing of
+  the sixel data before it.
+- [ ] Arguments. A script with three, the second optional, that prints each
+  on a line of its own. The placeholder changes with every step, and the
+  values entered so far are listed. Return on an empty required one says
+  "… is required", and the notice goes with the next key. The optional one
+  has its hint, and left out it reaches the script as an empty argument in
+  its place. Spaces, quotes, `$HOME` and `*` arrive exactly as typed. Esc
+  leaves the whole screen. After a fullOutput run, Esc from the output
+  leads back to an empty form. With `needsConfirmation true` the question
+  comes after the last argument.
+- [ ] `needsConfirmation true` on a script without arguments: "Run “…”?"
+  before every run, and again for Run Again. The question is drawn with
+  the button of a destructive confirmation; does "Run" in that colour read
+  right (design §4.1.6)?
+- [ ] A timeout. `# @openray.timeout 5` on a script that starts
+  `sleep 600 &` and then waits: after five seconds it says "Script timed
+  out", and `pgrep -f "sleep 600"` finds nothing, because the whole process
+  group was ended. A silent script without the line that sleeps a minute is
+  stopped after 30 seconds. A script with `trap '' TERM` is gone about two
+  seconds after Stop.
+- [ ] The documented way out. A script that starts a child in a session of
+  its own, such as
+  `perl -MPOSIX -e 'setsid(); exec "sleep", "600"' &`, and waits: after
+  Stop the script is gone and that `sleep` still runs. That is the limit
+  design §4.10 names; end it with `kill`.
+- [ ] Quitting OpenRay while a silent and a fullOutput script run. Are both
+  still running afterwards (`pgrep`)? Does one that prints after OpenRay
+  has gone end by itself? Write what happens into design §4.10.
+- [ ] Open in Editor opens an editor and runs nothing, for a script named
+  `x.sh`, for one without an extension and for one named `x.command`: no
+  Terminal window, and a line the script would print appears nowhere. Which
+  app opens, and is it the one you expect? macOS's default for plain text
+  is TextEdit.
+- [ ] Make Executable. A script with a `#!` line and mode 644 is in search
+  and Return offers "Make Executable": the HUD says "“…” can be run now",
+  the launcher stays, and the next Return runs it. The same file without
+  its `#!` line is in Script Diagnostics instead.
+- [ ] Files OpenRay refuses. After `chmod o+w` on a script, and on a
+  subfolder with scripts in it, they leave search and are in Script
+  Diagnostics with a sentence that names `chmod o-w`. If you care to, do
+  the same with a file given to root (`sudo chown root`): "belongs to
+  another user".
+- [ ] A downloaded script [18]. Download a script with a browser, move it
+  into the Scripts folder and make it executable; `xattr -l` shows
+  `com.apple.quarantine`. Return asks "Run “…”?" and says that the file was
+  downloaded. Cancel: nothing runs and the attribute is still there. Run:
+  the script runs, the attribute is gone, and the next run asks nothing.
+  Then the question behind it: would macOS have stopped the script without
+  that? Put the attribute back
+  (`xattr -w com.apple.quarantine "0083;00000000;Safari;" <file>`), run the
+  file from Terminal, and note what macOS does, in design §4.10.
+- [ ] Script Diagnostics: each row has the file's name, the sentence of its
+  problem and "File" or "Folder" at its end; typing filters by the name and
+  by words of the sentence; Return opens a file in the editor and shows a
+  folder in Finder; with nothing wrong the list says "No problems in your
+  script folders." A script with `# @openray.mode loud` and one with
+  `schemaVersion 2` are good ones to try. Beside the list the selected row
+  is shown with its name, its path and the whole sentence: for a script
+  after `chmod o+w` the row cuts the sentence off, and the part that names
+  `chmod o-w` has to be readable there. Does the list still have room for
+  the names with that view beside it?
+- [ ] A link to a script elsewhere. Make a folder with mode 777 outside the
+  script folders, put a script into it and a symbolic link to that script
+  into the Scripts folder. The link is in search, and Return refuses it
+  with the sentence about the folder everybody can change. After
+  `chmod 755` on that folder it runs. Is the HUD up long enough to read
+  that sentence (two lines, about a second and a half)?
+- [ ] A file saved by a Windows editor: UTF-8 with a byte order mark and
+  CR LF line ends, the `@openray.` lines first and no `#!` line. Script
+  Diagnostics says that it is not executable and has no `#!` line, and
+  not that its `schemaVersion` is missing.
+- [ ] "Add Script Folder…" from the launcher. The launcher closes, Settings
+  comes forward on Scripts, and the folder panel opens by itself, with
+  "Add" on its button. Choose a folder with a script in it: its row appears
+  in the pane and the script in search, without a restart. Close Settings:
+  the keyboard is back in the app you came from. Try it with Settings
+  closed before, open on another pane, and open on Scripts already. Cancel
+  the panel: nothing is added, and the command works again afterwards.
+  Remove the folder: its scripts go.
+- [ ] A script folder in Documents, on a fresh account or after
+  `tccutil reset SystemPolicyDocumentsFolder <bundle id>`. The row has the
+  warning. When does macOS ask: when the folder is added, at the next
+  launch, both? Is the text the one from `Config/Shared.xcconfig`? While
+  the prompt is up, can the launcher be opened and used, with the five
+  script commands in it? After "Don't Allow", Script Diagnostics should say
+  "OpenRay cannot read this folder." and the scripts of the other folders
+  should still be there; and at the next launch? Then Desktop, Downloads
+  and a folder in iCloud Drive: does macOS ask about that one at all?
+  Write the answers into design §5.1.
+- [ ] Files iCloud has moved off the Mac. Add a folder in iCloud Drive
+  that holds some large files, and remove their downloads in Finder
+  ("Remove Download", a cloud beside the name). Quit and start OpenRay:
+  none of them is downloaded again, the scripts of the other folders are
+  in search at once, and a script among the removed files is missing from
+  search until it is downloaded, after which it shows up without a
+  restart. Nothing could try this while it was built: a test cannot make
+  such a file.
+- [ ] launchd's environment [18]. Start a build from Finder and read
+  `ps eww -p $(pgrep -x OpenRay)`: what is `PATH`, and is `SHELL` there?
+  That line holds your whole environment, so read it and do not paste it
+  anywhere. Write the two answers into design §4.10.
+- [ ] The capture under each shell [18]. With zsh, bash and fish in turn as
+  your login shell (`chsh -s`, or an account for each): a silent script
+  with `echo "$PATH"` shows the Homebrew folder, and one that echoes a
+  variable you export only in `.zshrc`, `.bashrc` or `config.fish` shows
+  it. Settings › Scripts says "Scripts run with the environment of zsh: …
+  variables." and names no variable. Before the first script it says "Not
+  read yet…", and opening the pane does not start the shell.
+- [ ] Startup files that misbehave [18]. With `echo hello` in the rc file
+  the capture still works. With `read answer` in it, which waits for input
+  that never comes, the first script waits some seconds under "Reading
+  your shell environment…" and then runs all the same; the pane says "zsh
+  did not report its environment…", and a script still finds a Homebrew
+  tool through the fallback. Afterwards `pgrep -fl -- "-l -i"` should find
+  no shell left over; if it does, that is the way out of the process group
+  that design §4.10 expects of an interactive shell.
+- [ ] "Reload Shell Environment" after adding an `export` to the rc file:
+  the HUD has the sentence of the pane, and the next script sees the
+  variable. The pane's Reload button does the same.
+- [ ] What OpenRay adds: a script that prints `$OPENRAY`,
+  `$OPENRAY_VERSION`, `$OPENRAY_SCRIPT_PATH`, `$NO_COLOR`, `$TERM` and
+  `$LANG` shows 1, the version, its own path, 1, `dumb`, and your locale
+  or `en_US.UTF-8`. `pwd` in a script prints the folder the script is in.
+- [ ] The one test that asks your real shell [18]:
+  `OPENRAY_SHELL_ENV_TESTS=1 swift test --package-path Packages/OpenRayCore --filter RealShellEnvironmentTests`.
+  It starts your login shell with your startup files and prints where the
+  environment came from, the shell's name and the number of variables,
+  never a value. It should pass under each of the three shells. Does the
+  terminal you ran it from behave normally afterwards?
+- [ ] Automation from a script [18]: a script with
+  `osascript -e 'tell application "Finder" to get name of startup disk'`.
+  Which app does the prompt name, and is its text the one of
+  `NSAppleEventsUsageDescription`? After "Don't Allow", what does the
+  script print? On a signed, hardened build: does the event go out at all,
+  and does it depend on OpenRay's Apple-events entitlement (design §5.1)?
+- [ ] Files & Folders from a script [18]: a script with `ls ~/Documents`,
+  on an account where OpenRay was never asked about that folder. Which app
+  does the prompt name, and with which text? After a refusal the script
+  should print "Operation not permitted".
+- [ ] A hardened Release build, signed with your team (design §6.6), runs a
+  script whose first line is `#!/opt/homebrew/bin/python3`, or any other
+  interpreter from Homebrew, and one with `#!/usr/bin/env python3`.
+- [ ] Settings › Scripts: how the pane looks. The default folder's row has
+  no Remove button; a folder that was deleted says "This folder does not
+  exist."; the text under each section fits.
+- [ ] How the argument screen and the output screen look, and the status
+  line under a start error, such as a script whose `#!` line names a
+  program that does not exist.
+- [ ] VoiceOver on the output screen: can the lines be read, and the
+  status line? The HUD of a silent script is announced. Should new output
+  or the end of a run be announced too (design §5.5)?
 
 ### New in milestone 7
 
@@ -844,6 +1112,7 @@ In short:
   milestone 2. Tuning them needs recorded sessions, and there are none.
 - [ ] **UI tests in CI** (item 20), and the lint step for `swift format`,
   which CI does not run yet (design §5.4).
-- [ ] UNVERIFIED notes in the design that belong to features not built yet:
-  Apple events from a script's `osascript` (milestone 8), and whether
-  pasteboard access has a usage-description key (clipboard history).
+- [ ] The UNVERIFIED note in the design that belongs to a feature not built
+  yet: whether pasteboard access has a usage-description key (clipboard
+  history). The one about Apple events from a script's `osascript` has its
+  check in section 4 since milestone 8.

@@ -66,3 +66,22 @@ The first public release.
   nothing, Search Files is one of the rows that take what you typed. If
   Spotlight indexing is off, Search Files says so, and Settings › File Search
   has a slower search that works without it.
+- **Script commands.** Make commands of your own scripts. Put an executable
+  file into OpenRay's Scripts folder, which Open Scripts Folder shows, or
+  into a folder you add in Settings › Scripts, and give it three comment
+  lines at its top: `# @openray.schemaVersion 1`,
+  `# @openray.title Toggle Wi-Fi` and `# @openray.mode silent`. A moment
+  later it is in search under its title. A `silent` script runs with the
+  launcher closed and shows its last line of output when it is done; a
+  `fullOutput` script shows what it prints while it runs, with Stop (⌘.),
+  Run Again (⌘R) and Copy Output (⌘⇧C). A script can have an icon and
+  keywords, ask for up to three pieces of text before it runs, set a
+  timeout, and ask to be confirmed each time. Scripts run with the
+  environment of your login shell, so they find the tools you use in
+  Terminal; Reload Shell Environment reads it again after you changed your
+  shell's startup files. They run as you, without a sandbox. OpenRay runs a
+  script only when you ask it to, does not run a file that other users of
+  your Mac can change, and asks before it first runs a file you downloaded.
+  Script Diagnostics lists the files that should be commands and are not,
+  with the reason, and Show Last Script Output shows what the last script
+  printed.

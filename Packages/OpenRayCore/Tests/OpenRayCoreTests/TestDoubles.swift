@@ -101,8 +101,13 @@ import OpenRayCore
     var model: AnyObject?
 
     private(set) var screenActions: [ActionDescriptor] = []
+    /// How often the screen set its actions, for a screen that must not set the same list
+    /// twice.
+    private(set) var screenActionsSetCount = 0
     /// Every answer of a list screen, in the order it gave them.
     private(set) var answers: [Answer] = []
+    /// What the screen made of the search bar after it was pushed, in order.
+    private(set) var searchBarModes: [SearchBarMode] = []
 
     private var searchTextContinuations: [AsyncStream<String>.Continuation] = []
 
@@ -151,8 +156,9 @@ import OpenRayCore
         type(text)
     }
 
-    // No screen under test changes the search bar.
-    func setSearchBarMode(_ mode: SearchBarMode) {}
+    func setSearchBarMode(_ mode: SearchBarMode) {
+        searchBarModes.append(mode)
+    }
 
     func setSections(_ sections: [ResultSection], answering query: String, emptyMessage: String?) {
         answers.append(Answer(query: query, sections: sections, emptyMessage: emptyMessage))
@@ -160,6 +166,7 @@ import OpenRayCore
 
     func setScreenActions(_ actions: [ActionDescriptor]) {
         screenActions = actions
+        screenActionsSetCount += 1
     }
 }
 

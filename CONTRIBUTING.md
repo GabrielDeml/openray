@@ -128,6 +128,23 @@ swift test --package-path Packages/OpenRayCore
   OPENRAY_SPOTLIGHT_TESTS=1 swift test --package-path Packages/OpenRayCore \
     --filter SpotlightSearcherTests
   ```
+- The tests of script commands start real processes, under three rules. A
+  test only runs a script it wrote itself, into its own folder under the
+  temporary directory, and such a script does nothing but print, sleep, read
+  its arguments and environment, and exit. A signal only goes to a process
+  group the same test started. And no test starts a login shell: use
+  `FakeScriptRunner` and `makeShellEnvironmentWithoutShell()` from
+  `ScriptTestSupport.swift`, never a `ShellEnvironment` with a real runner
+  and the default shell. A test that waits for another process waits for an
+  event with a generous limit, never for a fixed time. A single test asks
+  your own login shell for its environment, startup files and all, and
+  prints how many variables it got and no value; it is skipped unless you
+  ask for it:
+
+  ```bash
+  OPENRAY_SHELL_ENV_TESTS=1 swift test --package-path Packages/OpenRayCore \
+    --filter RealShellEnvironmentTests
+  ```
 
 Before a pull request, also build the app the way CI does:
 

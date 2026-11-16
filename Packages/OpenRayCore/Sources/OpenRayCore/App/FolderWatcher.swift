@@ -2,8 +2,9 @@ import CoreServices
 import Foundation
 
 /// Tells when something changed in a folder or anywhere below it, through an `FSEventStream`
-/// (docs/DESIGN.md §4.2.8). It watches from `init` until `stop()`.
-final class AppFolderWatcher {
+/// (docs/DESIGN.md §4.2.8). It watches from `init` until `stop()`. The app index watches the
+/// application folders with it, and script commands their script folders (§4.10).
+final class FolderWatcher {
     /// What the stream passes to its callback. The callback is a C function and cannot capture
     /// anything, so the closure reaches it through the stream's context pointer.
     private final class Handler {
@@ -14,18 +15,16 @@ final class AppFolderWatcher {
         }
     }
 
-    /// How long changes are collected before they are reported. Installing one app changes
-    /// thousands of files, and reading the folder once for all of them is enough.
-    private static let latency: CFTimeInterval = 1
-
     private let handler: Handler
-    private let queue = DispatchQueue(label: "\(AppInfo.bundleIdentifier).app-folder-watcher")
+    private let queue = DispatchQueue(label: "\(AppInfo.bundleIdentifier).folder-watcher")
     private var stream: FSEventStreamRef?
 
-    /// - Parameter onChange: Called on a queue of the watcher's own, at most about once per
-    ///   second.
+    /// - Parameters:
+    ///   - latency: How many seconds changes are collected for before they are reported as
+    ///     one.
+    ///   - onChange: Called on a queue of the watcher's own, at most about once per `latency`.
     /// - Returns: nil when FSEvents does not take the folder.
-    init?(folder: URL, onChange: @escaping @Sendable () -> Void) {
+    init?(folder: URL, latency: CFTimeInterval, onChange: @escaping @Sendable () -> Void) {
         handler = Handler(onChange: onChange)
 
         var context = FSEventStreamContext(
@@ -47,7 +46,7 @@ final class AppFolderWatcher {
 
         let stream = FSEventStreamCreate(
             nil, callback, &context, paths,
-            FSEventStreamEventId(kFSEventStreamEventIdSinceNow), Self.latency, flags)
+            FSEventStreamEventId(kFSEventStreamEventIdSinceNow), latency, flags)
         guard let stream else { return nil }
 
         FSEventStreamSetDispatchQueue(stream, queue)

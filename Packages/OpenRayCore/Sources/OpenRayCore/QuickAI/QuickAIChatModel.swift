@@ -373,12 +373,9 @@ import Observation
     /// Without a shortcut: Esc stops a reply, and Esc is a key the launcher keeps for itself,
     /// so no action can have it (§4.1.3). `handleIntent` takes it instead.
     private func stopAction() -> ActionDescriptor {
-        let title = String(
-            localized: "Stop", bundle: .module,
-            comment: "Quick AI: the action that stops the answer that is arriving.")
         let session = session
 
-        return ActionDescriptor(id: ActionID(rawValue: "stop"), title: title) { _ in
+        return ActionDescriptor(id: ActionID(rawValue: "stop"), title: ActionTitles.stop) { _ in
             session.stop()
             return .keepOpen
         }

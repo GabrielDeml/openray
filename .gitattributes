@@ -1,3 +1,6 @@
 # Recorded API responses are test input byte for byte, CR LF included. Git must not rewrite
 # their line endings on anyone's machine.
 Packages/OpenRayCore/Tests/OpenRayCoreTests/Fixtures/claude/*.sse -text
+
+# The script header whose CR LF line endings are what its parser test is about.
+Packages/OpenRayCore/Tests/OpenRayCoreTests/Fixtures/scripts/crlf.sh -text
