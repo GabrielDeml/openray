@@ -149,7 +149,11 @@ import OpenRayCore
         let action = action(needs: [finder])
 
         // The run gets a task of its own to cancel; the test's task has to go on.
-        let outcome = await Task { outcome(of: await run(action)) }.value
+        let running = Task { () -> ActionOutcome? in
+            let ending = await run(action)
+            return outcome(of: ending)
+        }
+        let outcome = await running.value
 
         #expect(outcome == .keepOpen)
         #expect(checker.requested.isEmpty)
