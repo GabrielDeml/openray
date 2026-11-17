@@ -182,6 +182,14 @@ final class HotKeyRecorderView: NSView {
 
     override var acceptsFirstResponder: Bool { true }
 
+    /// The label must never be the hit view. In a row of Settings › Commands the list is a
+    /// table view, which keeps a click on a text field in a cell for itself, and the recorder
+    /// would not see a click on its own text.
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        if super.hitTest(point) == nil { return nil }
+        return self
+    }
+
     override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
         if isRecording {

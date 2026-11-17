@@ -356,6 +356,15 @@ import Testing
 }
 
 @MainActor @Suite(.timeLimit(.minutes(1))) struct CommandsSettingsModelTests {
+    /// What the launcher has, for a test in which that changes.
+    @MainActor private final class LauncherItems {
+        var items: [SearchItem]
+
+        init(_ items: [SearchItem]) {
+            self.items = items
+        }
+    }
+
     private let safari = ItemID.app(bundleID: "com.apple.Safari")
     private let sleep = ItemID.system("sleep")
     private let trash = ItemID.system("emptyTrash")
@@ -474,6 +483,36 @@ import Testing
         #expect(model.itemToShow == sleep)
         #expect(model.itemToFocus == nil)
         #expect(model.rows.map(\.id) == [sleep])
+    }
+
+    // macOS has soft hyphens in some localised app names, such as the German name of System
+    // Settings. A row's name is matched without them, so the filter must not have them.
+    @Test func showingAnItemWhoseTitleHasASoftHyphenFindsItsRow() async throws {
+        let settings = ItemID.app(bundleID: "com.apple.systempreferences")
+        let germanName = "System\u{AD}einstellungen"
+        let (model, _) = try await makeModel(
+            furtherItems: [item(settings, germanName, kind: "Application")])
+
+        model.show(settings)
+
+        #expect(model.filter == "Systemeinstellungen")
+        #expect(model.rows.map(\.id) == [settings])
+    }
+
+    // The app reads the items again whenever the launcher's have changed, so that the pane
+    // has no row for a command that is gone, such as "Quit Safari" after Safari has quit.
+    @Test func rowOfAnItemThatIsGoneGoesWhenTheItemsAreReadAgain() async throws {
+        let launcher = LauncherItems(launcherItems)
+        let store = CommandStore(database: try AppDatabase.inMemory())
+        let model = CommandsSettingsModel(commands: store, currentItems: { launcher.items })
+        model.reloadItems()
+        #expect(model.rows.map(\.title) == ["Empty Trash", "Sleep"])
+
+        launcher.items.removeAll { $0.id == sleep }
+        #expect(model.rows.map(\.title) == ["Empty Trash", "Sleep"])
+
+        model.reloadItems()
+        #expect(model.rows.map(\.title) == ["Empty Trash"])
     }
 
     // MARK: Quicklinks

@@ -10,12 +10,13 @@ final class FocusRestorer {
     private static let activationTimeout: Duration = .milliseconds(300)
     private static let activationCheckInterval: Duration = .milliseconds(10)
 
-    /// The app that was frontmost when OpenRay last showed the launcher over it or took
-    /// activation from it.
+    /// The app that was frontmost when OpenRay last showed the launcher over it, took
+    /// activation from it, or ran a command for a hotkey pressed in it.
     private(set) var previousApp: NSRunningApplication?
 
-    /// Call before showing the launcher and before activating OpenRay. When OpenRay is already
-    /// frontmost, the app recorded earlier is kept.
+    /// Call before showing the launcher, before activating OpenRay, and before making the
+    /// context of an action that a hotkey started. When OpenRay is already frontmost, the app
+    /// recorded earlier is kept.
     func recordFrontmostApp() {
         if let app = NSWorkspace.shared.frontmostApplication, app != .current {
             previousApp = app

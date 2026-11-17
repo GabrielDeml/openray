@@ -68,7 +68,7 @@ import Observation
     }
 
     /// Reads the items as they are now and begins to follow the store. The pane calls this
-    /// every time it appears.
+    /// when it appears.
     public func start() {
         reloadItems()
         if following != nil { return }
@@ -87,9 +87,10 @@ import Observation
         }
     }
 
-    /// Reads the launcher's items again. They are not followed like the store: the list of
-    /// items calls this when it appears, and an app installed or a quicklink added since is
-    /// then in it.
+    /// Reads the launcher's items again. The app calls this whenever the registry has
+    /// published and when the settings window opens, so that no row outlives its item: a
+    /// hotkey recorded on the row of an app that has quit since would go nowhere. The list of
+    /// items calls it too when it appears.
     public func reloadItems() {
         items = currentItems()
     }
@@ -98,8 +99,12 @@ import Observation
     public func show(_ id: ItemID) {
         reloadItems()
         scope = id.namespace == .app ? .applications : .commands
-        // The item's title as the filter leaves it as the only row, or nearly.
-        filter = items.first { $0.id == id }?.title ?? ""
+        // The item's title as the filter leaves it as the only row, or nearly. Soft hyphens
+        // are taken out, which macOS has in some localised app names: a row's name is matched
+        // without them, and a filter that kept one would be longer than the name and match
+        // nothing.
+        let title = items.first { $0.id == id }?.title ?? ""
+        filter = title.replacing("\u{AD}", with: "")
         itemToShow = id
     }
 

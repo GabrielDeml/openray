@@ -94,6 +94,18 @@ struct OnboardingView: View {
         }
     }
 
+    private func message(for failure: HotKeyFailure) -> LocalizedStringResource {
+        let chord = HotKeyFormatter.string(for: failure.hotKey)
+        switch failure.error {
+        case .inUseByAnotherApp, .rejected:
+            return "\(chord) could not be registered. Another app may be using it."
+        case .heldBySlot:
+            // No other app has it: a command of OpenRay does, and Settings is where that
+            // changes. ⌘, opens it from this window too.
+            return HotKeyFormatter.heldByCommandMessage(chord: chord)
+        }
+    }
+
     private var hotKeyStep: some View {
         VStack(spacing: 14) {
             Text("Choose your hotkey")
@@ -103,8 +115,7 @@ struct OnboardingView: View {
             HotKeyRecorder(launcherHotKey: hotKey).fixedSize()
 
             if let failure = hotKey.failure {
-                let chord = HotKeyFormatter.string(for: failure.hotKey)
-                Text("\(chord) could not be registered. Another app may be using it.")
+                Text(message(for: failure))
                     .font(.callout)
                     .foregroundStyle(.red)
             }

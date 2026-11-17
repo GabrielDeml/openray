@@ -158,9 +158,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let registry = CommandRegistry(sources: sources, commands: commands)
         // Set before the registry can publish, which it does not do within this method. The
         // hotkeys of commands follow the items from the first snapshot on.
-        registry.onPublish = { [weak registry, weak commandHotKeys] in
+        registry.onPublish = { [weak self, weak registry, weak commandHotKeys] in
             guard let registry, let commandHotKeys else { return }
             commandHotKeys.update(items: registry.items, overrides: registry.overrides)
+            // The rows of Settings › Commands go with their items. A hotkey recorded on the
+            // row of an item that is gone would be dropped without a word.
+            self?.commandsSettings?.reloadItems()
         }
         let search = SearchSession(registry: registry, usage: storage.usage, now: { Date() })
         let pasteService = PasteService(
@@ -210,7 +213,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.commandsSettings = commandsSettings
         self.commandHotKeys = commandHotKeys
         self.commandHotKeyRunner = commandHotKeyRunner
-        settings = SettingsWindowController(panes: panes, focusRestorer: focusRestorer)
+        let settings = SettingsWindowController(panes: panes, focusRestorer: focusRestorer)
+        settings.onOpen = { [weak commandHotKeys, weak commandsSettings] in
+            // What a recorder was refused the last time Settings was used is no longer news.
+            commandHotKeys?.clearRefusals()
+            commandsSettings?.reloadItems()
+        }
+        self.settings = settings
 
         if let notice = storage.notice {
             hud.show(notice)

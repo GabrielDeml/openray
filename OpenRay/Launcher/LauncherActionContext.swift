@@ -5,9 +5,9 @@ import OpenRayCore
 final class LauncherActionContext: ActionContext {
     /// The query of the frame the action was started from, as it was at that moment.
     let query: String
-    /// The app the launcher was open over at that moment. An action that pastes after a
-    /// wait, by which time the launcher may have been opened over another app, still means
-    /// this one.
+    /// The app the launcher was open over at that moment, or the app in front when the hotkey
+    /// was pressed that started the action. An action that pastes after a wait, by which time
+    /// the launcher may have been opened over another app, still means this one.
     let previousApp: AppRef?
 
     private weak var model: LauncherModel?

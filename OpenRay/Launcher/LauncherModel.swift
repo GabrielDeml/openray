@@ -24,7 +24,8 @@ protocol LauncherShell: AnyObject {
     func openSettings()
     /// New results are in the model and will be drawn at the next display refresh.
     func resultsDidCommit()
-    /// The app the launcher was opened over.
+    /// The app the launcher was opened over, or the one a command's hotkey was last pressed in
+    /// if that was later.
     var previousApp: AppRef? { get }
 }
 

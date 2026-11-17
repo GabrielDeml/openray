@@ -140,7 +140,7 @@ with the two companion files SQLite keeps beside it, holds:
   or the snippet it belonged to. The hotkey of an app you uninstalled or of a
   script you deleted stays, without doing anything, so that it works again
   when the app or the script is back; it goes when you give its keys to
-  something else. Pressing a hotkey is not counted as a pick: OpenRay stores
+  another command. Pressing a hotkey is not counted as a pick: OpenRay stores
   nothing about when or how often you use one.
 
 If the database cannot be read, OpenRay sets it aside under a name ending in
@@ -215,11 +215,12 @@ the script's path marked private. They never log what you typed for a
 script's arguments, anything a script printed, or an environment variable,
 neither its name nor its value. When the hotkey of a command cannot be
 registered, OpenRay logs why, with the item it belongs to marked private. A
-press of a hotkey is not logged, with two exceptions: a line without the item
-when a press is ignored because its command is still running, and, as when
-the command is run from the launcher, a line when the command fails, with the
-name of OpenRay's action and the error's domain and code. The error's text
-can name a file and is marked private.
+press of a hotkey adds one line of its own, and only when the press is
+ignored because its command is still running; that line does not name the
+item. The command a press runs logs what it logs when it is run from the
+launcher, as described above. That includes a line when the command fails,
+with the name of OpenRay's action and the error's domain and code. The
+error's text can name a file and is marked private.
 
 ## What is not kept
 
