@@ -4,7 +4,7 @@ import OpenRayCore
 
 /// Shows and hides the launcher panel, and connects the search field, the key monitor and the
 /// model.
-final class LauncherController: NSObject, NSWindowDelegate, LauncherShell {
+final class LauncherController: NSObject, NSWindowDelegate, LauncherShell, HotKeyPressHost {
     var onOpenSettings: (() -> Void)?
 
     private let panel = LauncherPanel(contentRect: NSRect(origin: .zero, size: LauncherPanel.size))
@@ -14,6 +14,9 @@ final class LauncherController: NSObject, NSWindowDelegate, LauncherShell {
     private let latency: FrameLatencyProbe
     private let focusRestorer: FocusRestorer
     private var displays = NSScreen.screens.map { $0.geometry }
+    /// Counts every `show()`. A command's hotkey whose action ends late tells by it whether
+    /// the launcher on screen is still the one that was there at the press.
+    private(set) var launcherShowCount = 0
 
     init(model: LauncherModel, focusRestorer: FocusRestorer) {
         self.focusRestorer = focusRestorer
@@ -63,6 +66,7 @@ final class LauncherController: NSObject, NSWindowDelegate, LauncherShell {
     }
 
     func show() {
+        launcherShowCount += 1
         focusRestorer.recordFrontmostApp()
         // `FocusRestorer` may have hidden OpenRay, which keeps its windows off screen.
         if NSApp.isHidden {
@@ -156,5 +160,46 @@ final class LauncherController: NSObject, NSWindowDelegate, LauncherShell {
         guard let app = focusRestorer.previousApp else { return nil }
         // Only what Core can hold: `NSRunningApplication` stays in the app target.
         return AppRef(pid: app.processIdentifier, bundleID: app.bundleIdentifier)
+    }
+
+    // MARK: HotKeyPressHost
+    // `isLauncherVisible` is the shell's, above, and `launcherShowCount` is with the
+    // properties.
+
+    var screenOnTop: ScreenRequest? {
+        model.state.top.screen
+    }
+
+    func showLauncher() {
+        show()
+    }
+
+    func showLauncher(on screen: ScreenRequest) {
+        // `show()` starts over at root search, also when the panel was already up, so the
+        // screen is the only one on the stack.
+        show()
+        model.apply(.push(screen))
+    }
+
+    func showLauncher(replacingQueryWith text: String) {
+        show()
+        model.apply(.queryChanged(text))
+    }
+
+    func hideLauncher() {
+        hide()
+    }
+
+    func showHUD(_ text: String) {
+        model.showHUD(text)
+    }
+
+    func makeActionContext() -> any ActionContext {
+        // The context takes its `previousApp` from here, and a hotkey can be pressed when the
+        // launcher was never shown over the app that is in front now. So that app is recorded
+        // first: it is the one a window command moves and a snippet is pasted into. With a
+        // window of OpenRay in front, such as Settings, the app recorded before it is kept.
+        focusRestorer.recordFrontmostApp()
+        return model.makeHotKeyActionContext()
     }
 }

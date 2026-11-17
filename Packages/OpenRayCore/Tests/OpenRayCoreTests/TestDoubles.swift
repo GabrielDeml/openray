@@ -19,6 +19,9 @@ import OpenRayCore
     var query: String
     /// What `confirm` answers.
     var confirmationAnswer = true
+    /// Runs when `confirm` is asked, before it answers, for a test of what had happened by
+    /// then.
+    var whenAskedToConfirm: (() -> Void)?
 
     /// What `paste` answers.
     var pasteResult = PasteResult.pasted
@@ -48,6 +51,7 @@ import OpenRayCore
 
     func confirm(_ confirmation: Confirmation) async -> Bool {
         confirmations.append(confirmation)
+        whenAskedToConfirm?()
         return confirmationAnswer
     }
 
@@ -226,5 +230,135 @@ import OpenRayCore
 
     func checkForUpdates() {
         checkCount += 1
+    }
+}
+
+/// A registrar that lives in the test. It keeps to the contract of `HotKeyRegistering` as
+/// `HotKeyCenter` does, with the test in the place of Carbon: it says which chords are refused
+/// and which slots do not come back after a recorder.
+@MainActor final class FakeHotKeyRegistrar: HotKeyRegistering {
+    enum Call: Equatable {
+        case register(HotKey, HotKeySlot)
+        case unregister(HotKeySlot)
+        case suspendAll
+        case resumeAll
+    }
+
+    /// The chords `register` refuses, each with the error it answers.
+    var refusedChords: [HotKey: HotKeyError] = [:]
+    /// What the next `resumeAll` returns. Those slots are without a hotkey afterwards.
+    var notRestoredAtResume: [HotKeySlot: HotKeyError] = [:]
+
+    private(set) var calls: [Call] = []
+    /// The chord of every slot that has one, registered or suspended.
+    private(set) var hotKeys: [HotKeySlot: HotKey] = [:]
+
+    /// Forgets the calls so far, for a test that is about what comes next.
+    func forgetCalls() {
+        calls = []
+    }
+
+    func register(_ key: HotKey, for slot: HotKeySlot) -> Result<Void, HotKeyError> {
+        calls.append(.register(key, slot))
+
+        for (otherSlot, otherKey) in hotKeys {
+            if otherSlot != slot && otherKey == key {
+                return .failure(.heldBySlot(otherSlot))
+            }
+        }
+        if let error = refusedChords[key] {
+            return .failure(error)
+        }
+        hotKeys[slot] = key
+        return .success(())
+    }
+
+    func unregister(_ slot: HotKeySlot) {
+        calls.append(.unregister(slot))
+        hotKeys[slot] = nil
+    }
+
+    func suspendAll() {
+        calls.append(.suspendAll)
+    }
+
+    func resumeAll() -> [HotKeySlot: HotKeyError] {
+        calls.append(.resumeAll)
+
+        let notRestored = notRestoredAtResume
+        notRestoredAtResume = [:]
+        for slot in notRestored.keys {
+            hotKeys[slot] = nil
+        }
+        return notRestored
+    }
+}
+
+/// The launcher's window as a press of a command's hotkey sees it. It records what it was
+/// asked for, in order, and hands every press a context of its own.
+@MainActor final class FakeHotKeyPressHost: HotKeyPressHost {
+    enum Call: Equatable {
+        case showLauncher
+        case showLauncherOnScreen(ScreenRequest)
+        case showLauncherWithQuery(String)
+        case hideLauncher
+        case showHUD(String)
+        /// Not a call to the host: a context it handed out was asked to confirm. It is in
+        /// this list so that a test sees whether the launcher was up by then.
+        case askedToConfirm
+    }
+
+    var isLauncherVisible = false
+    /// The app in front, which every context made from now on has as its `previousApp`.
+    var frontmostApp: AppRef?
+    /// What the contexts made from now on answer to `confirm`.
+    var confirmationAnswer = true
+
+    private(set) var calls: [Call] = []
+    private(set) var launcherShowCount = 0
+    private(set) var screenOnTop: ScreenRequest?
+    /// One for every `makeActionContext`, in order.
+    private(set) var contexts: [FakeActionContext] = []
+
+    /// Also what a test calls for the user opening the launcher with its own hotkey.
+    func showLauncher() {
+        calls.append(.showLauncher)
+        show(on: nil)
+    }
+
+    func showLauncher(on screen: ScreenRequest) {
+        calls.append(.showLauncherOnScreen(screen))
+        show(on: screen)
+    }
+
+    func showLauncher(replacingQueryWith text: String) {
+        calls.append(.showLauncherWithQuery(text))
+        show(on: nil)
+    }
+
+    private func show(on screen: ScreenRequest?) {
+        isLauncherVisible = true
+        launcherShowCount += 1
+        screenOnTop = screen
+    }
+
+    func hideLauncher() {
+        calls.append(.hideLauncher)
+        isLauncherVisible = false
+    }
+
+    func showHUD(_ text: String) {
+        calls.append(.showHUD(text))
+    }
+
+    func makeActionContext() -> any ActionContext {
+        let context = FakeActionContext()
+        context.previousApp = frontmostApp
+        context.confirmationAnswer = confirmationAnswer
+        context.whenAskedToConfirm = { [unowned self] in
+            calls.append(.askedToConfirm)
+        }
+        contexts.append(context)
+        return context
     }
 }

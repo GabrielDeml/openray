@@ -83,6 +83,7 @@ final class LauncherModel {
     @ObservationIgnored private let permissions: any PermissionChecking
     @ObservationIgnored private let hud: HUDController
     @ObservationIgnored private let pasteService: PasteService
+    @ObservationIgnored private let commandHotKeys: CommandHotKeys
     /// The action that was started last. Esc cancels it while its frame waits for it.
     @ObservationIgnored private var actionTask: Task<Void, Never>?
     @ObservationIgnored private var announcementTask: Task<Void, Never>?
@@ -94,7 +95,7 @@ final class LauncherModel {
     init(
         search: SearchSession, usage: any UsageStore, screenRegistry: ScreenRegistry,
         permissions: any PermissionChecking, hud: HUDController, pasteService: PasteService,
-        tabFallback: ScreenRequest?
+        commandHotKeys: CommandHotKeys, tabFallback: ScreenRequest?
     ) {
         self.search = search
         self.usage = usage
@@ -102,6 +103,7 @@ final class LauncherModel {
         self.permissions = permissions
         self.hud = hud
         self.pasteService = pasteService
+        self.commandHotKeys = commandHotKeys
         state.tabFallback = tabFallback
         search.onResults = { [weak self] results in
             self?.receive(results)
@@ -131,11 +133,32 @@ final class LauncherModel {
         return nil
     }
 
+    /// The global hotkeys of commands by item, for the rows that show theirs.
+    var hotKeysOfItems: [ItemID: HotKey] {
+        commandHotKeys.assignments
+    }
+
     /// The actions that ⌘K lists and that shortcuts run: those of the selected item, or of the
     /// screen on top when it is a custom screen.
     var currentActions: [ActionDescriptor] {
-        if let item = selectedItem { return item.actions }
+        if let item = selectedItem { return actions(of: item) }
         return topScreen?.context.screenActions ?? []
+    }
+
+    /// The item's own actions and, when the item can have a global hotkey, "Set Hotkey…" after
+    /// them. Whatever lists or runs an item's actions has to ask here, or the panel would
+    /// offer an action that `perform` cannot find.
+    ///
+    /// On an item with one action of its own, such as a window command, the added action is
+    /// the second and so gets ⌘↩ like any second action (`ActionShortcuts`).
+    private func actions(of item: SearchItem) -> [ActionDescriptor] {
+        var actions = item.actions
+        // A row without actions has no action panel, and gets none for this.
+        if actions.isEmpty { return actions }
+        if let setHotKey = commandHotKeys.settingsAction(for: item.id) {
+            actions.append(setHotKey)
+        }
+        return actions
     }
 
     /// The shortcuts of the current actions, for `KeyRouter`.
@@ -446,9 +469,8 @@ final class LauncherModel {
     private func target(of actionID: ActionID, on itemID: ItemID?) -> ActionTarget? {
         if let itemID {
             guard let row = row(withID: itemID) else { return nil }
-            guard let action = row.item.actions.first(where: { $0.id == actionID }) else {
-                return nil
-            }
+            let rowActions = actions(of: row.item)
+            guard let action = rowActions.first(where: { $0.id == actionID }) else { return nil }
             return ActionTarget(action: action, row: row)
         }
         // An action without an item belongs to the screen on top.
@@ -491,7 +513,8 @@ final class LauncherModel {
             case .outcome(let actionOutcome):
                 outcome = actionOutcome
             case .failure(let error):
-                report(error, from: target.action)
+                // With the launcher still open. `ActionRunner` has logged the error.
+                hud.show(error.localizedDescription)
                 outcome = .keepOpen
             }
             apply(.actionFinished(outcome, serial: serial))
@@ -501,19 +524,6 @@ final class LauncherModel {
                 hud.show(text)
             }
         }
-    }
-
-    /// Shows the error in the HUD, with the launcher still open, and logs it.
-    private func report(_ error: any Error, from action: ActionDescriptor) {
-        // The error's domain and code are public. Its description can name a file and stays
-        // private.
-        let nsError = error as NSError
-        Log.launcher.error(
-            """
-            The action \(action.id.rawValue, privacy: .public) failed with \
-            \(nsError.domain, privacy: .public) \(nsError.code, privacy: .public): \(error)
-            """)
-        hud.show(error.localizedDescription)
     }
 
     /// Counts the pick for ranking (docs/DESIGN.md §4.2.7).
@@ -531,6 +541,12 @@ final class LauncherModel {
     }
 
     // MARK: For actions
+
+    /// The context of an action that a command's hotkey started. No frame started it, so it
+    /// has no query. It is made here because the paste service is the model's.
+    func makeHotKeyActionContext() -> LauncherActionContext {
+        LauncherActionContext(query: "", model: self, pasteService: pasteService)
+    }
 
     func showHUD(_ text: String) {
         hud.show(text)

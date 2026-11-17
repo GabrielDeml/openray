@@ -5,12 +5,6 @@ import OpenRayCore
 /// says why the hotkey is not working when it is not.
 @Observable
 final class LauncherHotKey {
-    nonisolated struct Failure: Equatable {
-        /// The chord that could not be registered.
-        let hotKey: HotKey
-        let error: HotKeyError
-    }
-
     /// What the default falls back to when macOS refuses an Option-only chord.
     static let fallback = HotKey(
         keyCode: UInt32(VirtualKey.space), modifiers: [.control, .option])
@@ -20,11 +14,15 @@ final class LauncherHotKey {
     /// The last registration that failed; cleared by the next one that succeeds. The exception
     /// is the fallback: registering it leaves the refusal of the default here, because the user
     /// still has to be told why the launcher is on another chord.
-    private(set) var failure: Failure?
+    private(set) var failure: HotKeyFailure?
     /// Whether the default could not be registered at launch and `fallback` stands in for it
     /// until OpenRay quits. The preference keeps the default, so every launch tries it again.
     /// Only true while `isActive` is.
     private(set) var usesFallback = false
+
+    /// The hotkeys of commands. They are told when a recorder begins and ends, because that
+    /// releases and takes back theirs too, and asked whether a chord is one of theirs.
+    @ObservationIgnored weak var commandHotKeys: CommandHotKeys?
 
     @ObservationIgnored private let registrar: any HotKeyRegistering
     @ObservationIgnored private let preferences: Preferences
@@ -58,9 +56,18 @@ final class LauncherHotKey {
 
     /// Makes `key` the launcher hotkey. If it cannot be registered, the previous hotkey stays.
     func record(_ key: HotKey) {
+        // The registrar refuses the chord of a command's hotkey that is registered. One that
+        // is only stored, because its item is disabled or another app has the chord for now,
+        // it does not know of, and that command still holds its chord.
+        if let holder = commandHotKeys?.holder(of: key) {
+            failure = HotKeyFailure(hotKey: key, error: .heldBySlot(.command(holder)))
+            return
+        }
         guard tryToRegister(key) else { return }
         preferences.launcherHotKey = key
         usesFallback = false
+        // The chord the launcher was on is free, and a command may be waiting for it.
+        commandHotKeys?.launcherHotKeyDidChange()
     }
 
     /// Asks the registrar for `key`. Success sets `isActive`; a refusal is kept in `failure`.
@@ -71,20 +78,25 @@ final class LauncherHotKey {
             failure = nil
             return true
         case .failure(let error):
-            failure = Failure(hotKey: key, error: error)
+            failure = HotKeyFailure(hotKey: key, error: error)
             Log.launcher.error(
-                "Hotkey registration failed: \(String(describing: error), privacy: .public)")
+                "Hotkey registration failed: \(error.logDescription, privacy: .public)")
             return false
         }
     }
 
     /// The recorder must see every chord, including the current hotkey.
+    ///
+    /// Every recorder begins and ends here, those of Settings › Commands too: Carbon is
+    /// released and taken back for all hotkeys at once, whichever of them is being recorded.
     func beginRecording() {
         registrar.suspendAll()
+        commandHotKeys?.recorderDidBegin()
     }
 
     func endRecording() {
         let notRestored = registrar.resumeAll()
+        commandHotKeys?.recorderDidEnd(notRestored: notRestored)
         guard let error = notRestored[.launcher] else { return }
         // The chord was released for the recorder and could not be taken back, most likely
         // because another app registered it in the meantime. No hotkey is registered now, not
@@ -94,6 +106,6 @@ final class LauncherHotKey {
         let lostHotKey = hotKey
         isActive = false
         usesFallback = false
-        failure = Failure(hotKey: lostHotKey, error: error)
+        failure = HotKeyFailure(hotKey: lostHotKey, error: error)
     }
 }

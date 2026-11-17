@@ -28,6 +28,12 @@ were ones the tests wrote into temporary folders. Their checks are under "New
 in milestone 8" in section 4, and what their first release fixes for good is
 in section 1.
 
+Milestone 9 has added global hotkeys for commands, built the same way once
+more: no hotkey was registered with macOS, no key was pressed and OpenRay
+was not launched. Their checks are under "New in milestone 9" in section 4,
+and the one thing their first release fixes for good, the table they are
+stored in, is in section 1.
+
 Work through sections 1 and 2 once. Sections 3 and 4 are for every release.
 
 ## 1. Confirm before the first tag
@@ -70,13 +76,13 @@ old identifier.
   long as the repository stays where it is. The release job checks the cask's
   `url` against the repository it runs in.
 - [ ] **What the first release carries.** `CHANGELOG.md` has window
-  management, Lock Screen, snippets, file search and script commands under
-  Unreleased, beside everything of v0.1. The roadmap has each feature of
-  milestone 7 ship as a release of its own, and script commands are a
-  milestone of their own: move the five entries to the versions they ship
-  in, or leave them where they are if v0.1 is to have them. The status
-  paragraph of `README.md` names all five as well, and `README.md` has a
-  section on writing a script command.
+  management, Lock Screen, snippets, file search, script commands and
+  hotkeys for commands under Unreleased, beside everything of v0.1. The
+  roadmap has each feature of milestone 7 ship as a release of its own, and
+  script commands and command hotkeys are milestones of their own: move the
+  six entries to the versions they ship in, or leave them where they are if
+  v0.1 is to have them. The status paragraph of `README.md` names all six as
+  well, and `README.md` has a section on writing a script command.
 - [ ] **The snippet table** (item 33). The first release that has snippets
   fixes it, because an installed copy runs the migration `m7_snippets` once
   and never again. Default: an integer key, `row_id`, that the search index
@@ -106,6 +112,18 @@ old identifier.
   `scripts.folders` preference, a list of the added folders as absolute
   paths (design §4.10, §4.3.4). To change any of it, do so before that
   release, in `Packages/OpenRayCore/Sources/OpenRayCore/Scripts`.
+- [ ] **The hotkey table** (item 35). The first release that has command
+  hotkeys fixes it, because an installed copy runs the migration
+  `m9_command_hotkeys` once and never again. Default: a table
+  `command_hotkey` with the item's ID as its key, the key code and the
+  modifiers as two integers (the same two numbers as in the `launcher.hotKey`
+  preference), and a `UNIQUE` constraint on the two, so that a chord belongs
+  to one item (design §4.3.2 has the reasons). The table's columns cannot
+  change afterwards, because a database that fails to migrate is still read
+  for its hotkeys. To change any of it, edit the migration in
+  `Packages/OpenRayCore/Sources/OpenRayCore/Storage/AppDatabase.swift` before
+  that release. Nothing else of milestone 9 is fixed by a release: it adds
+  no preference and no new kind of ID.
 - [ ] **Lock Screen: keep it or take it out** (item 8). It ships only if the
   check in section 4 shows that it locks the screen. If it does not, remove
   the command (`lockScreen` in `SystemCommandSource`, `SystemControl` and
@@ -444,6 +462,193 @@ was built without launching the app, sending an Apple event, raising a
 permission prompt or calling the Claude API. The numbers in brackets are the
 open questions of section 8 of the design; settle each there once it has an
 answer.
+
+### New in milestone 9
+
+Global hotkeys for commands (design §4.11) were built without registering a
+hotkey with macOS, without pressing a key and without launching OpenRay. So
+none of this has been seen: not that a press arrives at all, and not the row
+a hotkey is set on. Every check here answers part of item 36; other numbers
+in brackets are items it touches as well.
+
+Before you start, give a few commands a hotkey in Settings › Commands: Left
+Half, a snippet, an app, a silent script that prints a line, Search Files, a
+quicklink that takes an argument, and Empty Trash or another command that
+asks first. Use chords that nothing else on the Mac uses, ⌃⌥ with a letter
+for most. The window commands and the paste need the Accessibility
+permission.
+
+- [ ] The row. Settings is 800 points wide now, 140 more than before, for
+  this row: icon, title, alias field, hotkey field ("Record Hotkey"), room
+  for the × and the two checkboxes on one line. The hotkey fields of all
+  rows stand in one column, and a long title is cut off without pushing
+  anything out. Is the wider window right, or should the row get another
+  shape and the window go back to 660 (design §4.3.5)? Look at the other
+  panes at the new width too: does any of them look stretched?
+- [ ] Recording. Click a row's hotkey field: the first click starts
+  recording. (The field is a custom view inside a list row; if the first
+  click only selects the row, that needs fixing.) Type ⌃⌥←: the field
+  shows it and the × appears. The field's tooltip shows on hover. Tab from
+  the filter reaches the field, and Space or Return starts recording there.
+  Esc while recording leaves the hotkey as it was. A chord without ⌘, ⌃ or
+  ⌥, and a reserved one such as ⌘C, beep and say why, as in Settings ›
+  General. "Record Hotkey" and the reasons fit the field without being cut
+  off; the longest is "⇧⌘Z is reserved".
+- [ ] It fires [2]. With TextEdit in front and the launcher closed, press
+  the hotkey of Left Half: TextEdit's window takes the left half and the
+  launcher does not appear. The same over a full-screen app, on another
+  Space and on a second display. With the cursor in a password field
+  (Secure Event Input), during Mission Control and while another app's menu
+  is open: does it still fire?
+- [ ] After a restart. Quit OpenRay and start it: the hotkeys work without
+  Settings having been opened, the app's and the script's too, whose items
+  are only there once the folders have been read.
+- [ ] A held key. Hold the hotkey of Maximize Window for two seconds, then
+  of Restore Window: the window changes once each time. Hold the hotkey of
+  a silent script with `date >> runs.txt`: one new line. If either repeats,
+  macOS sends a press for every repeat, and `HotKeyCenter` has to handle
+  the key's release (design §4.1.10).
+- [ ] The first press after launch. Quit OpenRay, start it, and without
+  opening the launcher once, press a window command's hotkey in Safari:
+  Safari's window moves. Click into Terminal and press it again: Terminal's
+  window moves.
+- [ ] From Settings. With Settings › Commands in front, press the window
+  command's hotkey you just recorded: the window of the app that was in
+  front before Settings moves, not the Settings window (design §4.7). Is
+  that what you expect when you try out a new hotkey? Then a snippet's
+  hotkey from there: the app behind comes forward and gets the text.
+- [ ] A snippet by hotkey [30]. In TextEdit, in Terminal and in a browser's
+  address bar, press the snippet's hotkey: the text arrives once, as a
+  paste. The hotkey's modifiers are still down when OpenRay posts ⌘V, so
+  try it with ⌃⌥ and with ⌘⇧ as the modifiers, and once more while holding
+  them on purpose for a second after the key. If an app does nothing, or
+  something other than paste, a paste by hotkey has to wait until the
+  modifiers are released (design §4.1.7). A snippet with `{cursor}`: the
+  caret ends up where it should. Without the Accessibility permission the
+  HUD says "Copied — press ⌘V".
+- [ ] Lock Screen by hotkey [8]. Only if Lock Screen locks the screen from
+  the launcher at all: give it a hotkey with ⌃⌥ and press it. Does the
+  screen lock although those modifiers are still down?
+- [ ] An app and a script. An app's hotkey opens the app, or brings it to
+  the front. A silent script's hotkey runs it without the launcher, and
+  the HUD shows its last line, over a full-screen app as well, and when the
+  launcher has not been shown once since OpenRay started. Press the
+  hotkey of a script that sleeps ten seconds twice in a row: it runs once,
+  and when it is done the next press runs it again. The second press is
+  ignored without a word; is that what you want, or should OpenRay say that
+  the command is still running (design §4.11)?
+- [ ] The launcher opened meanwhile. Press the hotkey of the script that
+  sleeps ten seconds, open the launcher with its own hotkey while the script
+  runs and type something: when the script ends, the launcher stays open
+  with what you typed and the HUD shows the script's last line over it. The
+  same with an app that takes a few seconds to start: press its hotkey, open
+  the launcher at once, and it is still open when the app has come up.
+- [ ] A command that asks. Press the hotkey of Empty Trash in TextEdit: the
+  launcher comes up over TextEdit with the question. Esc: the launcher goes
+  and the caret is back in TextEdit. Press it again and answer with Return:
+  the command runs and the launcher goes. With a script that sets
+  `needsConfirmation true` and runs for a while in fullOutput mode, and
+  with any command that takes a moment after the yes: what does the
+  launcher show in between, and is plain root search without a spinner in
+  the way (design §4.11)? With the launcher already open, the question is
+  asked in it, and a no leaves it open.
+- [ ] Two questions. Press the hotkeys of two commands that both ask, one
+  right after the other: nothing runs, and the launcher goes.
+- [ ] A command that needs text. The hotkey of a quicklink with an argument
+  opens the launcher on the argument screen; of a script with arguments,
+  on its argument screen; of a fullOutput script, on the output screen with
+  the script running; of Search Files, on its list, ready for typing; of
+  Ask AI, on the chat. Esc leads back from each as it does when the screen
+  was opened from search. With the launcher already open on another screen,
+  the press starts it over on the new one.
+- [ ] The same hotkey again. While a fullOutput script that counts for
+  twenty seconds is on its output screen, press its hotkey again: the
+  script goes on and its output is not started over. Type half an argument
+  on a quicklink's argument screen and press that quicklink's hotkey: what
+  you typed is still there. Close the launcher and press the hotkey: the
+  screen opens anew.
+- [ ] A permission that is missing [15]. With Accessibility not granted,
+  press a window command's hotkey: the launcher comes up on the permission
+  screen.
+- [ ] With the launcher open. Open the launcher over TextEdit, type
+  something and press a window command's hotkey: TextEdit's window moves
+  and the launcher closes. Open it again and press a snippet's hotkey: the
+  snippet is pasted into TextEdit.
+- [ ] Chords that are taken inside OpenRay. Record the launcher's hotkey on
+  a command's row: "… opens the launcher." appears under the row and the
+  row keeps what it had. Record another command's hotkey: "… is the hotkey
+  of “…”.", also while that other command is switched off. In Settings ›
+  General, record a command's chord for the launcher: "… is the hotkey of a
+  command. Clear it in Settings › Commands first.", and the launcher keeps
+  its hotkey. The same while that command is switched off, and while its
+  hotkey is not working because another app has the chord. Leave the
+  Commands pane and come back: the messages under the rows are gone.
+- [ ] A chord another app holds [2]. Give a command a chord that a running
+  app has registered as a global shortcut: the row says "… is in use by
+  another app." and the command keeps the hotkey it had. Then the other
+  order: with a command's hotkey set, quit OpenRay, start an app that takes
+  the chord, and start OpenRay. No window opens. The row says why, the line
+  above the list reads "Hotkeys that are not working: …", and the launcher
+  still shows the key cap on that command's row. Quit the other app and
+  record the same chord on the row again: it works. Do the same once more
+  and, instead of recording, change something that makes OpenRay put its
+  list of items together again, such as a checkbox of another row: the
+  hotkey comes back on its own.
+- [ ] Chords macOS uses. Try ⌃← (Mission Control, if it is switched on in
+  System Settings), ⌘⇧4 (screenshot) and ⌘Space (Spotlight). What does the
+  row say for each? Where the chord is taken, who gets the key: OpenRay,
+  macOS or both? Should any of them join the chords the recorder refuses
+  (design §4.1.10)?
+- [ ] A chord OpenRay holds already. OpenRay never asks macOS for a chord
+  that another of its own hotkeys has, because nobody knows what macOS
+  would answer (design §4.1.2). Only worth finding out if that check is
+  ever to go: in a Debug build, take the `holder(of:otherThan:)` check out
+  of `HotKeyCenter.register` and the `holder(of:)` check out of
+  `LauncherHotKey.record`, and record a command's chord for the launcher in
+  Settings › General. Is it refused by macOS, and if not, does one press
+  then run the command and open the launcher?
+- [ ] Many hotkeys. Give thirty commands a hotkey each; the nineteen window
+  commands and a few apps will do. All of them register and fire, and
+  OpenRay does not start noticeably slower.
+- [ ] While a recorder records. Start recording on a row and press another
+  command's hotkey: that command does not run, and the chord is taken as
+  this row's and refused with its message. Start again and press the
+  launcher's hotkey: the launcher does not open, and the row says that the
+  chord opens the launcher. Afterwards every hotkey works again. While the
+  recorder of Settings › General or of onboarding records, a command's
+  hotkey does not run its command either.
+- [ ] Clearing. The × removes the hotkey: the field says "Record Hotkey",
+  the chord reaches other apps again, and another command can be given it.
+  Delete while recording does the same.
+- [ ] Switched off, hidden, gone. Untick "Enabled" on a command with a
+  hotkey: the hotkey does nothing and the field still shows the chord. Tick
+  it again: it works. Untick "In Search": the hotkey still works. Give a
+  script a hotkey and move the script out of its folder: the chord reaches
+  other apps again. Move it back: the hotkey works again. Give a quicklink
+  a hotkey and delete the quicklink: its chord can be given to something
+  else.
+- [ ] The launcher's fallback. Only on a Mac where ⌥Space is refused and
+  the launcher runs on ⌃⌥Space: a command given ⌃⌥Space says "⌃⌥Space opens
+  the launcher." under its row. With a command that had ⌃⌥Space from before,
+  record another hotkey for the launcher in Settings › General: the
+  command's hotkey works at once and the message under its row is gone.
+- [ ] In the launcher. A row whose item has a hotkey shows it in a key cap
+  before the kind label, in root search and in Search Snippets, and a long
+  title is cut off before the cap. ⌘K on an app or a command ends with "Set
+  Hotkey…", which opens Settings › Commands with that item's row showing,
+  also when the pane was last left on Quicklinks or on Fallback. The
+  keyboard is not in the hotkey field then: is Tab from the filter good
+  enough (design §4.3.5)? "Add Alias…" still lands in the alias field. On a
+  window command ⌘↩ now opens Settings on it, because "Set Hotkey…" is its
+  second action: is that in the way (design §4.2.2)?
+- [ ] Onboarding. On the step that asks you to press your hotkey, a
+  command's hotkey runs its command and does not pass the step; the
+  launcher's passes it.
+- [ ] Settings › Window Management: its last sentence now says that a
+  command can be given a hotkey. Does it read right beside the others?
+- [ ] VoiceOver: a launcher row with a hotkey ("Hotkey ⌃⌥←": are the
+  symbols read as keys?), the hotkey field of a row ("Hotkey of Left Half"
+  and its value), the clear button, and the message under a row.
 
 ### New in milestone 8
 

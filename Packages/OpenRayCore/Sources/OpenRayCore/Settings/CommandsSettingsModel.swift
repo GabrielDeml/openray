@@ -40,6 +40,9 @@ import Observation
     public var scope = Scope.commands
     /// The text of the pane's search field.
     public var filter = ""
+    /// The item the pane was opened for from the launcher. The view brings the list of items
+    /// forward, which may be behind the quicklinks or the fallback list, and clears this.
+    public var itemToShow: ItemID?
     /// The item whose alias field should take the keyboard, set when the pane is opened for
     /// one item. The view clears it once it has moved the focus.
     public var itemToFocus: ItemID?
@@ -91,12 +94,19 @@ import Observation
         items = currentItems()
     }
 
-    /// Shows the pane's list on one item, for "Add Alias…" in the launcher.
-    public func focus(on id: ItemID) {
+    /// Shows the pane's list on one item, for "Set Hotkey…" in the launcher.
+    public func show(_ id: ItemID) {
         reloadItems()
         scope = id.namespace == .app ? .applications : .commands
         // The item's title as the filter leaves it as the only row, or nearly.
         filter = items.first { $0.id == id }?.title ?? ""
+        itemToShow = id
+    }
+
+    /// Shows the pane's list on one item and puts the keyboard in its alias field, for
+    /// "Add Alias…" in the launcher.
+    public func focus(on id: ItemID) {
+        show(id)
         itemToFocus = id
     }
 

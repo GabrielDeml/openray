@@ -32,13 +32,20 @@ a title ([Script commands](#script-commands) below). A script runs quietly and
 shows its last line of output when it is done, or shows everything it prints
 while it runs, and it can ask for up to three pieces of text first. Scripts
 run as you, with everything you are allowed to do; OpenRay puts them in no
-sandbox. They are the newest part and have only been run by their tests, on
+sandbox. They are new too and have only been run by their tests, on
 scripts the tests wrote for themselves: none of their screens has been seen
-yet, and nobody has run a script of their own from the launcher. Aliases,
-quicklinks, snippets, launch at login, the API key, the gap between tiled
-windows, where Search Files looks, the script folders and updates are set up
-in its settings window, which also shows the version and the licences of what
-OpenRay is built with. A released
+yet, and nobody has run a script of their own from the launcher. Any app or
+command can be given a global hotkey of its own in Settings › Commands:
+pressing it does what Return on it does in the launcher, without opening the
+launcher first, so a window command moves the window you are in and a snippet
+is pasted where you are typing. A command that has to ask something first, or
+needs you to type, opens the launcher for just that. Hotkeys for commands are
+the newest part of all, and so far only their tests have run them: no such
+hotkey has been registered with macOS and none has been pressed. Aliases,
+hotkeys for commands, quicklinks, snippets, launch at login, the API key, the
+gap between tiled windows, where Search Files looks, the script folders and
+updates are set up in its settings window, which also shows the version and
+the licences of what OpenRay is built with. A released
 build keeps itself up to date if you let it; a Debug build from source never
 looks for updates.
 

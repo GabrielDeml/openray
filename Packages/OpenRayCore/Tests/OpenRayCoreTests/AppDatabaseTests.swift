@@ -19,6 +19,25 @@ import Testing
         return FileManager.default.fileExists(atPath: file.path(percentEncoded: false))
     }
 
+    private let controlOptionS = HotKey(keyCode: 0x01, modifiers: [.control, .option])
+
+    /// The snippet in the fixture `m8.sqlite`.
+    private let fixtureSnippet = Snippet(
+        id: UUID(uuidString: "5C0D7A91-2E4B-4F63-8A1D-9B7E6F5A4C3D")!,
+        name: "Signature", keyword: "sig", body: "Kind regards\nAda",
+        createdAt: Date(timeIntervalSince1970: 1_795_000_000),
+        updatedAt: Date(timeIntervalSince1970: 1_795_000_600))
+
+    /// Puts the database of milestone 8 into the directory, under the name the app opens.
+    private func copyMilestone8Fixture(to directory: URL) throws {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let fixture = try #require(
+            Bundle.module.url(
+                forResource: "m8", withExtension: "sqlite", subdirectory: "Fixtures/databases"))
+        try FileManager.default.copyItem(
+            at: fixture, to: directory.appending(path: "OpenRay.sqlite"))
+    }
+
     @Test(.timeLimit(.minutes(1)))
     func inMemoryDatabaseHasTheUsageTables() async throws {
         let database = try AppDatabase.inMemory()
@@ -191,6 +210,37 @@ import Testing
         #expect(try await snippets.search("regards") == [signature])
     }
 
+    // The fixture is a database as milestone 8 left it: one pick, one alias, a third
+    // quicklink, a hidden app and a snippet, written by the code as it was before the hotkey
+    // table existed.
+    @Test(.timeLimit(.minutes(1)))
+    func databaseOfMilestone8KeepsWhatItHadAndGainsTheHotKeyTable() async throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try copyMilestone8Fixture(to: directory)
+
+        let database = try AppDatabase.openOnDisk(at: directory)
+
+        #expect(!database.wasReplaced)
+        let pickedAt = Date(timeIntervalSince1970: 1_795_000_000)
+        let usage = await (try SQLiteUsageStore(database: database, now: pickedAt)).snapshot()
+        #expect(usage.frecency(of: safari, at: pickedAt) == 1)
+        #expect(usage.affinity(of: safari, query: "saf", at: pickedAt) == 1)
+
+        let commands = try await CommandStore(database: database).snapshot()
+        #expect(commands.aliases == ["term": .app(bundleID: "com.apple.Terminal")])
+        #expect(commands.quicklinks.map(\.name) == ["Google", "DuckDuckGo", "Wikipedia"])
+        let chess = ItemID.app(bundleID: "com.apple.Chess")
+        #expect(commands.overrides == [chess: ItemOverride(hidden: true)])
+
+        #expect(try await SnippetStore(database: database).search("regards") == [fixtureSnippet])
+
+        let hotKeyStore = CommandHotKeyStore(database: database)
+        #expect(try await hotKeyStore.all().isEmpty)
+        try await hotKeyStore.set(controlOptionS, for: safari)
+        #expect(try await hotKeyStore.all() == [safari: controlOptionS])
+    }
+
     // A file that fails to migrate cannot be made here: in a Debug build, which is what the
     // tests are, the migrator erases such a file instead of failing. So the recovery is run
     // on a file that is in good order, which is the case where there is something to carry.
@@ -228,6 +278,57 @@ import Testing
         #expect(try await snippets.search("regards") == [signature])
         // Nothing else is carried over.
         #expect(try await CommandStore(database: replacement).snapshot().aliases.isEmpty)
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func replacedDatabaseGetsTheHotKeysOfTheOldOne() async throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let created = Date(timeIntervalSince1970: 1_790_000_000)
+        let signature = Snippet(
+            name: "Signature", body: "Kind regards", createdAt: created, updatedAt: created)
+        let commandF5 = HotKey(keyCode: 0x60, modifiers: [.command])
+
+        do {
+            let database = try AppDatabase.openOnDisk(at: directory)
+            try await SnippetStore(database: database).save(signature)
+            let hotKeyStore = CommandHotKeyStore(database: database)
+            try await hotKeyStore.set(controlOptionS, for: safari)
+            try await hotKeyStore.set(commandF5, for: signature.itemID)
+            try await CommandStore(database: database).setAliases(["s"], for: safari)
+        }
+
+        let file = directory.appending(path: "OpenRay.sqlite", directoryHint: .notDirectory)
+        let replacement = try AppDatabase.replaceDatabase(at: file)
+
+        #expect(replacement.wasReplaced)
+        #expect(
+            try await CommandHotKeyStore(database: replacement).all()
+                == [safari: controlOptionS, signature.itemID: commandF5])
+        // The snippet whose hotkey that is came along as well, under the same ID.
+        #expect(try await SnippetStore(database: replacement).search("") == [signature])
+        // Aliases are still not carried over.
+        #expect(try await CommandStore(database: replacement).snapshot().aliases.isEmpty)
+    }
+
+    // A file from before the hotkey table has nothing to give for it, which must not cost the
+    // snippets that are read from the same file.
+    @Test(.timeLimit(.minutes(1)))
+    func replacingADatabaseWithoutTheHotKeyTableStillCarriesItsSnippets() async throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try copyMilestone8Fixture(to: directory)
+        // A database that could not be migrated has been opened, and GRDB's pool leaves the
+        // `-wal` file beside it. Without one SQLite does not open a WAL database read-only,
+        // so the fixture gets the empty log it had when it was made.
+        try Data().write(to: directory.appending(path: "OpenRay.sqlite-wal"))
+
+        let file = directory.appending(path: "OpenRay.sqlite", directoryHint: .notDirectory)
+        let replacement = try AppDatabase.replaceDatabase(at: file)
+
+        #expect(replacement.wasReplaced)
+        #expect(try await SnippetStore(database: replacement).search("") == [fixtureSnippet])
+        #expect(try await CommandHotKeyStore(database: replacement).all().isEmpty)
     }
 
     // Clipboard and snippet search (milestones 4 and 7) are designed around this tokenizer, and

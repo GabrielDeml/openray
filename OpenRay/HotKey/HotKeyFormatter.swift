@@ -57,4 +57,18 @@ enum HotKeyFormatter {
         guard let keyCode = UInt16(exactly: keyCode) else { return nil }
         return KeyboardLayout.characters(forKeyCode: keyCode)?.uppercased()
     }
+
+    // MARK: Why a hotkey is not registered
+
+    // The General pane says these of the launcher's hotkey and the Commands pane of a
+    // command's. `chord` is the hotkey as `string(for:)` gives it.
+
+    static func inUseByAnotherAppMessage(chord: String) -> LocalizedStringResource {
+        "\(chord) is in use by another app."
+    }
+
+    static func rejectedMessage(chord: String, status: Int32) -> LocalizedStringResource {
+        // As text, because a number would be shown with a thousands separator ("-9,868").
+        "macOS could not register \(chord) (error \(String(status)))."
+    }
 }

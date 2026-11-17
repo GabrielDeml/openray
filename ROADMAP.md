@@ -22,6 +22,7 @@ on purpose: people contribute to things they can install.
 | 6 | Public v0.1 | Signing, notarisation, auto-update, Homebrew cask, demo, contributor guide | A stranger installs it with one command and it updates itself |
 | 7 | More built-ins | Window management, Lock Screen, file search on its own "Search Files" screen, snippets | Each ships as its own release |
 | 8 | Script commands | Scripts in a folder show up as commands, running silently or in a full-output view, with up to three text arguments | A shell script dropped in the folder runs from the launcher and shows its output |
+| 9 | Command hotkeys | A global hotkey of its own for any command | A hotkey set in Settings runs its command from any app |
 
 Milestone 4 has a gate: clipboard history does not start until the pasteboard
 privacy experiment under [Open questions](#open-questions) has been run.
@@ -57,6 +58,19 @@ person yet. The tests cover the pieces: finding the script, running it and
 what the screens do with its output. Seeing them work together is a block of
 manual checks in the release checklist.
 
+Milestone 9 is built and not released: any app or command can be given a
+global hotkey in Settings › Commands, and pressing it does what Return on
+the item does, without the launcher being opened first. The launcher comes up
+only where the command needs it: to ask before Shut Down, or for the text a
+quicklink or a script takes. It was built without registering a hotkey with
+macOS and without pressing a key, so its test, a hotkey set in Settings that
+runs its command from any app, has not been met by a person yet. The tests
+cover which chords are taken and refused, when a hotkey is registered and
+what a press does to the launcher, all against stand-ins for macOS. That a
+key pressed in another app arrives at all is the first of its manual checks
+in the release checklist. Until this milestone the design listed hotkeys for
+single commands as something OpenRay would not do.
+
 ## Built ahead of the feature that needs it
 
 Some shared pieces land earlier than the first feature that uses them, so that
@@ -68,6 +82,7 @@ later milestones extend them and never replace them.
 | Preferences store | 1 | Every later milestone |
 | Shared permission flow | 3 | System commands (3), paste (4), window management (7) |
 | List and custom screens inside the panel | 3 | Quick AI (5), snippets and file search (7), clipboard history (4), scripts (8) |
+| A hotkey registrar for more than one hotkey | 1 | Command hotkeys (9) |
 | Shared paste path | 4 | Quick AI (5), snippets and Lock Screen (7) |
 
 ## Architecture
@@ -76,8 +91,10 @@ later milestones extend them and never replace them.
   model and storage in the `OpenRayCore` Swift package so they can be tested
   without launching the app.
 - **Window:** a non-activating `NSPanel` hosting SwiftUI content.
-- **Hotkey:** Carbon's `RegisterEventHotKey`, which needs no permission prompt.
-- **Storage:** SQLite for usage ranking, clipboard history and snippets.
+- **Hotkey:** Carbon's `RegisterEventHotKey`, which needs no permission
+  prompt, for the launcher and for the hotkeys of commands.
+- **Storage:** SQLite for usage ranking, clipboard history, snippets and the
+  hotkeys of commands.
 - **Distribution:** not sandboxed and outside the Mac App Store, because window
   management and unrestricted file search cannot work in the sandbox.
 - **Commands:** built-in features own their SwiftUI views and plug into the
@@ -102,6 +119,8 @@ later milestones extend them and never replace them.
 - Inline script output and scripts that refresh in the background
 - Snippet expansion while typing in other apps
 - Currency conversion in the calculator
+- Key sequences and hotkey layers, hotkeys that work only in certain apps,
+  and changing the launcher's own keys
 
 ## Open questions
 
@@ -132,6 +151,13 @@ The full list, with the milestone each must be settled by, is in section 8 of
   script asks for a permission, and whether macOS lets a downloaded script
   run at all could not be tried while it was built. All three have to be
   seen on a Mac before the release that carries script commands.
+- **Command hotkeys (milestone 9):** a snippet pasted by its hotkey is pasted
+  while the hotkey's own modifier keys are still held down. OpenRay posts
+  ⌘V with exactly the modifiers it means, which is believed to be enough,
+  and nobody has tried it. If apps see the held keys as well, a paste by
+  hotkey has to wait until they are released, and the same goes for Lock
+  Screen. Whether macOS sends one press or many for a key that is held is
+  the other thing to see before the release that carries command hotkeys.
 - **Notarisation (milestone 6):** the release job that signs and notarises is
   written and has never run. It needs a paid Apple Developer account and the
   rest of the one-time setup in [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md)

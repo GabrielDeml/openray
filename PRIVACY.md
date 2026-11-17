@@ -132,10 +132,21 @@ with the two companion files SQLite keeps beside it, holds:
   was made and last changed. Deleting a snippet removes it from the database.
   What was stored about your picks of it, as described above, is not removed
   with it: it stays under an ID that says nothing about the snippet.
+- **The hotkeys you gave to apps and commands** in Settings › Commands: for
+  each, the key with its modifiers and the ID of the item it runs. For an app
+  that is its bundle identifier, or its path if it has none; for a script it
+  is the path of its file (`script:` and the path), as for a pick. Clearing
+  a hotkey removes it from the database, and so does deleting the quicklink
+  or the snippet it belonged to. The hotkey of an app you uninstalled or of a
+  script you deleted stays, without doing anything, so that it works again
+  when the app or the script is back; it goes when you give its keys to
+  something else. Pressing a hotkey is not counted as a pick: OpenRay stores
+  nothing about when or how often you use one.
 
 If the database cannot be read, OpenRay sets it aside under a name ending in
 `.corrupt-` and a date, in the same folder, and starts a new one. If the
-snippets in the old file can still be read, they are copied into the new one.
+snippets and the hotkeys of commands in the old file can still be read, they
+are copied into the new one.
 
 ### The Scripts folder
 
@@ -152,7 +163,8 @@ confirming a script that macOS marked as downloaded takes that mark off.
 ### Preferences
 
 The app's preferences
-(`~/Library/Preferences/io.github.gabrieldeml.openray.plist`) hold the hotkey,
+(`~/Library/Preferences/io.github.gabrieldeml.openray.plist`) hold the hotkey
+that opens the launcher (the hotkeys of commands are in the database),
 which onboarding steps you have seen, the extra folders you added for app
 search, whether the hint about pasting has been shown, the model and effort
 chosen for Quick AI, the gap and the room for Stage Manager that the window
@@ -201,7 +213,13 @@ environment came from, how many variables it has and how long reading it
 took; and how a script ended, with its exit code, a timeout or a stop, and
 the script's path marked private. They never log what you typed for a
 script's arguments, anything a script printed, or an environment variable,
-neither its name nor its value.
+neither its name nor its value. When the hotkey of a command cannot be
+registered, OpenRay logs why, with the item it belongs to marked private. A
+press of a hotkey is not logged, with two exceptions: a line without the item
+when a press is ignored because its command is still running, and, as when
+the command is run from the launcher, a line when the command fails, with the
+name of OpenRay's action and the error's domain and code. The error's text
+can name a file and is marked private.
 
 ## What is not kept
 
@@ -237,7 +255,8 @@ neither its name nor its value.
   no variable.
 - **The windows of other apps.** A window command, such as Left Half, needs
   the Accessibility permission. With it, OpenRay reads the position and the
-  size of the front window of the app you opened OpenRay over, whether it is
+  size of the front window of the app you opened OpenRay over, or of the app
+  in front when you press the command's hotkey, whether it is
   an ordinary window, whether its size can be changed and whether it is full
   screen, and then moves it. It does not read the window's title or what is
   in it. An app built on Chromium or Electron animates such a move unless an

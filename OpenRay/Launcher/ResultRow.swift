@@ -10,15 +10,18 @@ struct ResultRow: View, Equatable {
     private let kindLabel: String
     private let accessories: [String]
     private let highlights: [Range<Int>]
+    /// The item's global hotkey as text, such as "⌃⌥←"; nil for an item without one.
+    private let hotKey: String?
     private let isSelected: Bool
 
-    init(_ row: ScoredItem, isSelected: Bool) {
+    init(_ row: ScoredItem, hotKey: String?, isSelected: Bool) {
         title = row.item.title
         subtitle = row.item.subtitle
         icon = row.item.icon
         kindLabel = row.item.kindLabel
         accessories = row.item.accessories
         highlights = row.highlights
+        self.hotKey = hotKey
         self.isSelected = isSelected
     }
 
@@ -41,6 +44,9 @@ struct ResultRow: View, Equatable {
                     .padding(.vertical, 2)
                     .background(Color.gray.opacity(0.2), in: Capsule())
             }
+            if let hotKey {
+                KeyCap(symbol: hotKey)
+            }
             Text(kindLabel)
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
@@ -53,7 +59,14 @@ struct ResultRow: View, Equatable {
             in: RoundedRectangle(cornerRadius: 9, style: .continuous)
         )
         .accessibilityElement(children: .combine)
+        .accessibilityValue(spokenHotKey)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    /// The key cap is hidden from assistive technologies, so the row says the hotkey itself.
+    private var spokenHotKey: Text {
+        guard let hotKey else { return Text(verbatim: "") }
+        return Text("Hotkey \(hotKey)")
     }
 
     /// The title with the matched characters emphasised.
@@ -77,6 +90,7 @@ struct ResultRow: View, Equatable {
     nonisolated static func == (lhs: ResultRow, rhs: ResultRow) -> Bool {
         lhs.title == rhs.title && lhs.subtitle == rhs.subtitle && lhs.icon == rhs.icon
             && lhs.kindLabel == rhs.kindLabel && lhs.accessories == rhs.accessories
-            && lhs.highlights == rhs.highlights && lhs.isSelected == rhs.isSelected
+            && lhs.highlights == rhs.highlights && lhs.hotKey == rhs.hotKey
+            && lhs.isSelected == rhs.isSelected
     }
 }

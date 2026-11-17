@@ -1,3 +1,4 @@
+import Foundation
 import os
 
 /// Takes one action from its confirmation to its outcome (docs/DESIGN.md §4.1.4). The launcher
@@ -8,7 +9,8 @@ import os
         /// What the launcher does next. `.keepOpen` also when the action did not run: the user
         /// declined, a permission was refused, or Esc cancelled the task.
         case outcome(ActionOutcome)
-        /// The action threw. The launcher stays as it is and shows the error.
+        /// The action threw. The launcher stays as it is and shows the error, which is in the
+        /// log by then.
         case failure(any Error)
     }
 
@@ -39,6 +41,15 @@ import os
             // An action that stops because Esc cancelled it has not failed.
             let wasCancelled = error is CancellationError || Task.isCancelled
             if wasCancelled { return .outcome(.keepOpen) }
+
+            // The error's domain and code are public. Its description can name a file and
+            // stays private.
+            let nsError = error as NSError
+            Log.launcher.error(
+                """
+                The action \(action.id.rawValue, privacy: .public) failed with \
+                \(nsError.domain, privacy: .public) \(nsError.code, privacy: .public): \(error)
+                """)
             return .failure(error)
         }
     }
