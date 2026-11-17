@@ -147,6 +147,24 @@ import Testing
         #expect(overrides.overrides.isEmpty)
     }
 
+    @Test func deletingTakesTheHotKeyOfTheItemWithIt() async throws {
+        let database = try AppDatabase.inMemory()
+        let store = SnippetStore(database: database)
+        let hotKeyStore = CommandHotKeyStore(database: database)
+        let signature = snippet("Signature")
+        let address = snippet("Address")
+        let controlOptionS = HotKey(keyCode: 0x01, modifiers: [.control, .option])
+        let controlOptionA = HotKey(keyCode: 0x00, modifiers: [.control, .option])
+        try await store.save(signature)
+        try await store.save(address)
+        try await hotKeyStore.set(controlOptionS, for: signature.itemID)
+        try await hotKeyStore.set(controlOptionA, for: address.itemID)
+
+        try await store.delete(signature.id)
+
+        #expect(try await hotKeyStore.all() == [address.itemID: controlOptionA])
+    }
+
     @Test func deletingWhatIsNotThereDoesNothing() async throws {
         let store = try makeStore()
         try await store.save(snippet("Signature"))

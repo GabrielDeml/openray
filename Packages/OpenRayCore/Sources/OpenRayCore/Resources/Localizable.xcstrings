@@ -531,6 +531,9 @@
     "Search Snippets" : {
       "comment" : "The command that opens the list of snippets, which searches their text."
     },
+    "Set Hotkey…" : {
+      "comment" : "The action that opens Settings, where the selected item can be given a global hotkey."
+    },
     "Show Last Script Output" : {
       "comment" : "The command that shows what the script that ran last has printed, also one that ran without showing its output."
     },

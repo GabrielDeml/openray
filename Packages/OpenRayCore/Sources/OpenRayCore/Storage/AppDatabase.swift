@@ -10,8 +10,8 @@ public struct AppDatabase: Sendable {
     let writer: any DatabaseWriter
     /// Whether the file that was there could not be used and this is a new database in its
     /// place. The app tells the user once, because what the launcher had learned and the
-    /// user's aliases and quicklinks are gone from it (§4.3.8). The snippets are not, if the
-    /// old file could still be read that far.
+    /// user's aliases and quicklinks are gone from it (§4.3.8). The snippets and the hotkeys
+    /// of commands are not, if the old file could still be read that far.
     public let wasReplaced: Bool
 
     /// Opens the database in `directory` and brings its schema up to date. The directory and the
@@ -39,9 +39,10 @@ public struct AppDatabase: Sendable {
         return try replaceDatabase(at: file)
     }
 
-    /// Moves the database at `file` aside and opens a new one in its place. The snippets are
-    /// carried over when the old file still gives them up: of everything in it, they are the
-    /// most work to write again (§4.3.8).
+    /// Moves the database at `file` aside and opens a new one in its place. Two things are
+    /// carried over when the old file still gives them up (§4.3.8): the snippets, which of
+    /// everything in it are the most work to write again, and the hotkeys of commands, because
+    /// a global hotkey that has silently stopped working is the loss that is hardest to notice.
     ///
     /// Internal for the tests, which call it on a file that is in good order. A file that
     /// fails to migrate cannot be made for a test, because in Debug builds the migrator
@@ -49,35 +50,61 @@ public struct AppDatabase: Sendable {
     static func replaceDatabase(at file: URL) throws -> AppDatabase {
         // Read before the files are renamed. In WAL mode the newest rows can still be in the
         // `-wal` file, which SQLite no longer finds under its new name.
-        let snippets = readSnippets(ofUnusableDatabase: file)
+        let carriedOver = readCarriedOverRows(ofUnusableDatabase: file)
         moveAside(file)
 
         let writer = try open(file)
-        if !snippets.isEmpty {
-            store(snippets, in: writer)
+        if !carriedOver.snippets.isEmpty {
+            store(carriedOver.snippets, in: writer)
+        }
+        if !carriedOver.hotKeys.isEmpty {
+            store(carriedOver.hotKeys, in: writer)
         }
         return AppDatabase(writer: writer, wasReplaced: true)
     }
 
-    /// The snippets in a database that could not be opened, or none when they cannot be read
-    /// either. The file is opened read-only and without the migrations: whatever is wrong
-    /// with it, this must not change it.
-    private static func readSnippets(ofUnusableDatabase file: URL) -> [Snippet] {
+    /// What a new database takes from the one it replaces.
+    private struct CarriedOverRows {
+        var snippets: [Snippet] = []
+        var hotKeys: [ItemID: HotKey] = [:]
+    }
+
+    /// The snippets and the command hotkeys in a database that could not be opened; of each,
+    /// none when they cannot be read either. The file is opened read-only and without the
+    /// migrations: whatever is wrong with it, this must not change it.
+    private static func readCarriedOverRows(ofUnusableDatabase file: URL) -> CarriedOverRows {
+        var carriedOver = CarriedOverRows()
         do {
             var configuration = Configuration()
             configuration.readonly = true
             let queue = try DatabaseQueue(
                 path: file.path(percentEncoded: false), configuration: configuration)
-            let snippets = try queue.read { db in
-                try SnippetStore.fetchAll(db)
+
+            // Each table is read on its own, so that one that cannot be read does not cost
+            // the other.
+            do {
+                carriedOver.snippets = try queue.read { db in
+                    try SnippetStore.fetchAll(db)
+                }
+            } catch {
+                Log.storage.error("Cannot read the snippets of the old database: \(error)")
             }
+            do {
+                carriedOver.hotKeys = try queue.read { db in
+                    // A file from before `m9_command_hotkeys` has no such table and no hotkeys.
+                    guard try db.tableExists("command_hotkey") else { return [:] }
+                    return try CommandHotKeyStore.fetchAll(db)
+                }
+            } catch {
+                Log.storage.error("Cannot read the command hotkeys of the old database: \(error)")
+            }
+
             // Closed here and not whenever the value goes away: the file is renamed next.
             try queue.close()
-            return snippets
         } catch {
-            Log.storage.error("Cannot read the snippets of the old database: \(error)")
-            return []
+            Log.storage.error("Cannot read the old database: \(error)")
         }
+        return carriedOver
     }
 
     /// Puts the snippets of the old database into the new one, with the IDs and dates they
@@ -94,6 +121,27 @@ public struct AppDatabase: Sendable {
         } catch {
             // The old file is kept, so they are not lost, only not here.
             Log.storage.error("Cannot carry the snippets over to the new database: \(error)")
+        }
+    }
+
+    /// Puts the command hotkeys of the old database into the new one. All of them or none.
+    ///
+    /// They still name their items: the ID of an app, a system or window command, a script and
+    /// a seeded quicklink is the same in every database, and the snippets were just carried
+    /// over with theirs. The hotkey of a quicklink the user made waits for an item that does
+    /// not come back, and gives its chord to whatever is assigned it next.
+    private static func store(_ hotKeys: [ItemID: HotKey], in writer: any DatabaseWriter) {
+        do {
+            try writer.write { db in
+                for (id, hotKey) in hotKeys {
+                    try CommandHotKeyStore.write(hotKey, for: id, to: db)
+                }
+            }
+            let count = hotKeys.count
+            Log.storage.notice(
+                "Carried \(count, privacy: .public) command hotkeys over to the new database")
+        } catch {
+            Log.storage.error("Cannot carry the command hotkeys over to the new database: \(error)")
         }
     }
 
@@ -244,6 +292,26 @@ public struct AppDatabase: Sendable {
                       INSERT INTO snippet_fts (rowid, name, keyword, body)
                       VALUES (new.row_id, new.name, new.keyword, new.body);
                     END;
+                    """)
+        }
+
+        // What is permanent here, once a release has run this migration:
+        //
+        // - The table may not change shape, because a database that cannot be migrated is
+        //   still read for its hotkeys (`replaceDatabase`).
+        // - `key_code` is `HotKey.keyCode` and `modifiers` is `HotKey.Modifiers.rawValue`,
+        //   whose bit assignments never change.
+        // - The two constraints are the rule itself: one chord for an item, and one item for
+        //   a chord.
+        migrator.registerMigration("m9_command_hotkeys") { db in
+            try db.execute(
+                sql: """
+                    CREATE TABLE command_hotkey (
+                      item_id   TEXT PRIMARY KEY,
+                      key_code  INTEGER NOT NULL,
+                      modifiers INTEGER NOT NULL,
+                      UNIQUE (key_code, modifiers)
+                    );
                     """)
         }
 

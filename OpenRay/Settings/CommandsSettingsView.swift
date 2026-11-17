@@ -5,15 +5,23 @@ import SwiftUI
 extension SettingsPane {
     static let commandsID = "commands"
 
-    static func commands(model: CommandsSettingsModel) -> SettingsPane {
+    static func commands(
+        model: CommandsSettingsModel, commandHotKeys: CommandHotKeys,
+        launcherHotKey: LauncherHotKey
+    ) -> SettingsPane {
         SettingsPane(
             id: commandsID, title: "Commands", systemImage: "command", order: 10,
-            makeView: { AnyView(CommandsSettingsView(model: model)) })
+            makeView: {
+                AnyView(
+                    CommandsSettingsView(
+                        model: model, commandHotKeys: commandHotKeys,
+                        launcherHotKey: launcherHotKey))
+            })
     }
 }
 
-/// Settings › Commands: which items show up in search and under which aliases, the quicklinks,
-/// and the order of the fallback list.
+/// Settings › Commands: which items show up in search, under which aliases and with which
+/// global hotkey, the quicklinks, and the order of the fallback list.
 struct CommandsSettingsView: View {
     private enum Tab: Hashable {
         case items
@@ -22,6 +30,8 @@ struct CommandsSettingsView: View {
     }
 
     @Bindable var model: CommandsSettingsModel
+    let commandHotKeys: CommandHotKeys
+    let launcherHotKey: LauncherHotKey
     @State private var tab = Tab.items
 
     var body: some View {
@@ -36,12 +46,14 @@ struct CommandsSettingsView: View {
             .padding(12)
 
             switch tab {
-            case .items: CommandItemsList(model: model)
+            case .items:
+                CommandItemsList(
+                    model: model, commandHotKeys: commandHotKeys, launcherHotKey: launcherHotKey)
             case .quicklinks: QuicklinkList(model: model)
             case .fallback: FallbackList(model: model)
             }
 
-            if let error = model.errorMessage {
+            if let error = model.errorMessage ?? commandHotKeys.errorMessage {
                 Label {
                     Text(error)
                 } icon: {
@@ -54,14 +66,21 @@ struct CommandsSettingsView: View {
         }
         .onAppear {
             model.start()
+            // What was refused the last time the pane was used is no longer news.
+            commandHotKeys.clearRefusals()
+            showItemsIfAskedFor()
         }
-        .onChange(of: model.itemToFocus) { _, item in
-            // "Add Alias…" in the launcher opened the pane for one item, which is in the list
-            // of items.
-            if item != nil {
-                tab = .items
-            }
+        .onChange(of: model.itemToShow) { _, _ in
+            showItemsIfAskedFor()
         }
+    }
+
+    /// "Add Alias…" and "Set Hotkey…" in the launcher open the pane for one item, which is in
+    /// the list of items.
+    private func showItemsIfAskedFor() {
+        guard model.itemToShow != nil else { return }
+        tab = .items
+        model.itemToShow = nil
     }
 }
 
@@ -69,6 +88,8 @@ struct CommandsSettingsView: View {
 
 private struct CommandItemsList: View {
     @Bindable var model: CommandsSettingsModel
+    let commandHotKeys: CommandHotKeys
+    let launcherHotKey: LauncherHotKey
     @FocusState private var focusedAliasField: ItemID?
 
     var body: some View {
@@ -86,8 +107,24 @@ private struct CommandItemsList: View {
             .padding(.horizontal, 12)
             .padding(.bottom, 8)
 
+            if let summary = failedHotKeysSummary {
+                Label {
+                    Text(summary)
+                } icon: {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                }
+                .font(.callout)
+                .foregroundStyle(.red)
+                .lineLimit(2)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 12)
+                .padding(.bottom, 8)
+            }
+
             List(model.rows) { row in
-                CommandItemRow(row: row, model: model, focusedAliasField: $focusedAliasField)
+                CommandItemRow(
+                    row: row, model: model, commandHotKeys: commandHotKeys,
+                    launcherHotKey: launcherHotKey, focusedAliasField: $focusedAliasField)
             }
             .listStyle(.inset)
         }
@@ -96,11 +133,32 @@ private struct CommandItemsList: View {
             model.reloadItems()
         }
     }
+
+    /// Names the items whose hotkey is not registered. Each row says why, but a hotkey that
+    /// failed at launch would otherwise be one row among two hundred, in a list that may be
+    /// showing the other kind of item.
+    private var failedHotKeysSummary: LocalizedStringResource? {
+        var titles: [String] = []
+        for id in commandHotKeys.failures.keys {
+            if let title = commandHotKeys.title(of: id) {
+                titles.append(title)
+            }
+        }
+        if titles.isEmpty { return nil }
+
+        titles.sort { first, second in
+            first.localizedStandardCompare(second) == .orderedAscending
+        }
+        let names = titles.formatted(.list(type: .and))
+        return "Hotkeys that are not working: \(names)."
+    }
 }
 
 private struct CommandItemRow: View {
     let row: CommandsSettingsModel.Row
     let model: CommandsSettingsModel
+    let commandHotKeys: CommandHotKeys
+    let launcherHotKey: LauncherHotKey
     var focusedAliasField: FocusState<ItemID?>.Binding
 
     /// What the alias field holds while it is being edited. The stored aliases replace it when
@@ -108,6 +166,21 @@ private struct CommandItemRow: View {
     @State private var aliasText = ""
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            controls
+            if let problem = hotKeyProblem {
+                Label {
+                    Text(problem)
+                } icon: {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                }
+                .font(.callout)
+                .foregroundStyle(.red)
+            }
+        }
+    }
+
+    private var controls: some View {
         HStack(spacing: 8) {
             IconView(icon: row.icon)
             VStack(alignment: .leading, spacing: 1) {
@@ -125,6 +198,8 @@ private struct CommandItemRow: View {
                 .focused(focusedAliasField, equals: row.id)
                 .onSubmit(saveAliases)
                 .help("Short names this item is found by, separated by commas")
+
+            hotKeyControls
 
             Toggle("In Search", isOn: isShownInSearch)
                 .help("Show this item in search results")
@@ -148,6 +223,79 @@ private struct CommandItemRow: View {
                 saveAliases()
             }
         }
+    }
+
+    /// The recorder for the item's global hotkey and the button that removes it.
+    @ViewBuilder private var hotKeyControls: some View {
+        let hotKey = commandHotKeys.hotKey(for: row.id)
+        let hasHotKey = hotKey != nil
+
+        HStack(spacing: 4) {
+            CommandHotKeyRecorder(
+                item: row.id, title: row.title, hotKey: hotKey, commandHotKeys: commandHotKeys,
+                launcherHotKey: launcherHotKey
+            )
+            .fixedSize()
+            .help(
+                "The global hotkey that runs this item. Click, then type a shortcut. Esc cancels and Delete removes the hotkey."
+            )
+
+            // Without a hotkey the button is still there, invisible, so that the recorders of
+            // all rows stand in one column.
+            Button {
+                Task { await commandHotKeys.clear(row.id) }
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+            }
+            .buttonStyle(.borderless)
+            .accessibilityLabel("Clear hotkey")
+            .help("Remove the hotkey")
+            .opacity(hasHotKey ? 1 : 0)
+            .disabled(!hasHotKey)
+            .accessibilityHidden(!hasHotKey)
+        }
+    }
+
+    /// What is wrong with the item's hotkey: why the chord last tried for it was refused, or
+    /// else why the one it has is not registered. Composed here because naming a chord takes
+    /// the keyboard layout, as for the launcher's hotkey in the General pane.
+    private var hotKeyProblem: LocalizedStringResource? {
+        if let refusal = commandHotKeys.refusals[row.id] {
+            switch refusal {
+            case .opensLauncher(let hotKey):
+                return opensLauncherMessage(for: hotKey)
+            case .belongsTo(let hotKey, let itemTitle):
+                let chord = HotKeyFormatter.string(for: hotKey)
+                return "\(chord) is the hotkey of “\(itemTitle)”."
+            case .notRegistered(let failure):
+                return message(for: failure)
+            }
+        }
+        if let failure = commandHotKeys.failures[row.id] {
+            return message(for: failure)
+        }
+        return nil
+    }
+
+    private func message(for failure: HotKeyFailure) -> LocalizedStringResource {
+        let chord = HotKeyFormatter.string(for: failure.hotKey)
+        switch failure.error {
+        case .inUseByAnotherApp:
+            return HotKeyFormatter.inUseByAnotherAppMessage(chord: chord)
+        case .rejected(let status):
+            return HotKeyFormatter.rejectedMessage(chord: chord, status: status)
+        case .heldBySlot(.launcher):
+            // The launcher is on this chord although it is not refused as the stored one: as
+            // its fallback, or because it was given the chord while this item was gone.
+            return opensLauncherMessage(for: failure.hotKey)
+        case .heldBySlot(.command):
+            return "OpenRay already uses \(chord) for another command."
+        }
+    }
+
+    private func opensLauncherMessage(for hotKey: HotKey) -> LocalizedStringResource {
+        let chord = HotKeyFormatter.string(for: hotKey)
+        return "\(chord) opens the launcher."
     }
 
     /// "Add Alias…" in the launcher opens the pane for one item. Its row takes the keyboard,

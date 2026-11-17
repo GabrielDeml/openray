@@ -15,6 +15,9 @@ struct ResultsListView: View {
     var body: some View {
         let sections = model.visibleSections
         let selection = model.state.top.selection
+        // Read here and not in the rows, so that the list is drawn again when a hotkey is
+        // given or taken away.
+        let hotKeys = model.hotKeysOfItems
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
@@ -22,7 +25,11 @@ struct ResultsListView: View {
                     ForEach(sections) { section in
                         Section {
                             ForEach(section.rows, id: \.item.id) { row in
-                                ResultRow(row, isSelected: row.item.id == selection).equatable()
+                                ResultRow(
+                                    row, hotKey: Self.text(of: hotKeys[row.item.id]),
+                                    isSelected: row.item.id == selection
+                                )
+                                .equatable()
                             }
                         } header: {
                             if let title = section.title {
@@ -62,6 +69,12 @@ struct ResultsListView: View {
                     .padding(.horizontal, 40)
             }
         }
+    }
+
+    /// The hotkey as its row shows it; nil for a row without one, which is most.
+    private static func text(of hotKey: HotKey?) -> String? {
+        guard let hotKey else { return nil }
+        return HotKeyFormatter.string(for: hotKey)
     }
 }
 

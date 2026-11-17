@@ -51,7 +51,7 @@ struct WindowManagementSettingsView: View {
                 "Window commands such as Left Half or Maximize Window move the front window of the app you opened OpenRay over. They need the Accessibility permission, which you grant in Settings › General."
             )
             Text(
-                "They have no keyboard shortcuts of their own. Open OpenRay and type the name of a command, or an alias you gave it in Settings › Commands."
+                "A command can be given a global hotkey in Settings › Commands, and then moves the front window of the app that is in front when you press it. Without one, open OpenRay and type the name of the command, or an alias you gave it there."
             )
         }
         .font(.callout)

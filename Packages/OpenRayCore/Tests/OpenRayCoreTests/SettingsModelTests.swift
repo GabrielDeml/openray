@@ -456,8 +456,24 @@ import Testing
 
         #expect(model.scope == .applications)
         #expect(model.filter == "Safari")
+        #expect(model.itemToShow == safari)
         #expect(model.itemToFocus == safari)
         #expect(model.rows.map(\.id) == [safari])
+    }
+
+    // "Set Hotkey…" leads to the item's row, and the keyboard is not put in its alias field.
+    @Test func showingAnItemLeavesTheKeyboardWhereItIs() async throws {
+        let (model, _) = try await makeModel()
+        model.scope = .applications
+
+        model.show(sleep)
+
+        #expect(model.scope == .commands)
+        #expect(model.filter == "Sleep")
+        // The pane may be on its quicklinks, and this is how it hears that the list is wanted.
+        #expect(model.itemToShow == sleep)
+        #expect(model.itemToFocus == nil)
+        #expect(model.rows.map(\.id) == [sleep])
     }
 
     // MARK: Quicklinks

@@ -36,6 +36,10 @@ import os
     private(set) var isReady = false
     /// Called after `snapshot` or `overrides` has changed.
     var onChange: (@MainActor () -> Void)?
+    /// Called right after `onChange`, when `items` and `overrides` belong together. It is for
+    /// the one listener outside search, which keeps the hotkeys of commands in step with the
+    /// items; the search session keeps `onChange` to itself.
+    public var onPublish: (@MainActor () -> Void)?
 
     /// The latest items of each source, in the order of `sources`.
     private var itemsBySource: [[SearchItem]]
@@ -164,5 +168,6 @@ import os
         self.snapshot = snapshot
         isReady = true
         onChange?()
+        onPublish?()
     }
 }

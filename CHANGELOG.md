@@ -85,3 +85,14 @@ The first public release.
   Script Diagnostics lists the files that should be commands and are not,
   with the reason, and Show Last Script Output shows what the last script
   printed.
+- **Hotkeys for commands.** Give any app or command a global hotkey of its
+  own in Settings › Commands: click the field in its row and type the
+  shortcut. Pressing it anywhere does what Return on that row does, without
+  opening the launcher first. Left Half moves the window you are in, a
+  snippet is pasted where you are typing, an app opens, a script runs. A
+  command that asks before it acts, such as Shut Down, or that needs you to
+  type something, such as a quicklink, opens the launcher for just that. A
+  shortcut that already opens the launcher or belongs to another command is
+  refused, and the row says which; so is one that another app holds. The
+  launcher shows a command's hotkey on its row, and Set Hotkey… in ⌘K leads
+  to where it is set. The × beside a hotkey removes it.

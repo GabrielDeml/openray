@@ -153,4 +153,14 @@ import OpenRayCore
         let optionSpace = try JSONDecoder().decode(HotKey.self, from: storedOptionSpace)
         #expect(optionSpace == .launcherDefault)
     }
+
+    // The log line of a refused chord is public, and the ID of a script is its path.
+    @Test func logDescriptionOfAnErrorDoesNotNameTheCommandThatHoldsTheChord() {
+        let script = ItemID.script(path: "/Users/ada/Scripts/deploy.sh")
+
+        #expect(HotKeyError.heldBySlot(.command(script)).logDescription == "held by a command")
+        #expect(HotKeyError.heldBySlot(.launcher).logDescription == "held by the launcher")
+        #expect(HotKeyError.inUseByAnotherApp.logDescription == "in use by another app")
+        #expect(HotKeyError.rejected(-9868).logDescription == "rejected with -9868")
+    }
 }

@@ -60,7 +60,9 @@ final class SettingsWindowController: ActivatingWindowController {
         let window = NSWindow(contentViewController: NSHostingController(rootView: content))
         window.styleMask = [.titled, .closable, .miniaturizable]
         window.title = String(localized: "\(AppInfo.name) Settings")
-        window.setContentSize(NSSize(width: 660, height: 420))
+        // Wide enough for a row of Settings › Commands, which has the most in one line: the
+        // title, the alias field, the hotkey recorder and two switches.
+        window.setContentSize(NSSize(width: 800, height: 420))
         window.center()
         super.init(window: window, focusRestorer: focusRestorer)
     }

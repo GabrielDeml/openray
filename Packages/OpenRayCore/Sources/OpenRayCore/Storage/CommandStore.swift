@@ -119,8 +119,8 @@ public struct CommandStore: Sendable {
         }
     }
 
-    /// Deletes the quicklink together with what was stored about its item, so that no alias or
-    /// fallback row is left pointing at nothing.
+    /// Deletes the quicklink together with what was stored about its item, so that no alias,
+    /// fallback row or hotkey is left pointing at nothing.
     public func deleteQuicklink(_ id: UUID) async throws {
         let itemID = ItemID.quicklink(id).rawValue
         try await database.write("commands.deleteQuicklink") { db in
@@ -128,6 +128,7 @@ public struct CommandStore: Sendable {
             try db.execute(sql: "DELETE FROM alias WHERE item_id = ?", arguments: [itemID])
             try db.execute(sql: "DELETE FROM item_override WHERE item_id = ?", arguments: [itemID])
             try db.execute(sql: "DELETE FROM fallback WHERE item_id = ?", arguments: [itemID])
+            try db.execute(sql: "DELETE FROM command_hotkey WHERE item_id = ?", arguments: [itemID])
         }
     }
 

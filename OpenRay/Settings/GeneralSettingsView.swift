@@ -90,14 +90,16 @@ struct GeneralSettingsView: View {
             "Until OpenRay quits, \(fallback) opens the launcher in place of \(refused). OpenRay tries \(refused) again the next time it starts."
     }
 
-    private func message(for failure: LauncherHotKey.Failure) -> LocalizedStringResource {
+    private func message(for failure: HotKeyFailure) -> LocalizedStringResource {
         let chord = HotKeyFormatter.string(for: failure.hotKey)
         switch failure.error {
         case .inUseByAnotherApp:
-            return "\(chord) is in use by another app."
+            return HotKeyFormatter.inUseByAnotherAppMessage(chord: chord)
         case .rejected(let status):
-            // As text, because a number would be shown with a thousands separator ("-9,868").
-            return "macOS could not register \(chord) (error \(String(status)))."
+            return HotKeyFormatter.rejectedMessage(chord: chord, status: status)
+        case .heldBySlot:
+            // The launcher is the only slot this pane records for, so the holder is a command.
+            return "\(chord) is the hotkey of a command. Clear it in Settings › Commands first."
         }
     }
 

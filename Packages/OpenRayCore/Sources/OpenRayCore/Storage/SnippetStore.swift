@@ -58,14 +58,15 @@ public struct SnippetStore: Sendable {
         }
     }
 
-    /// Deletes the snippet together with what was stored about its item, so that no alias is
-    /// left pointing at nothing.
+    /// Deletes the snippet together with what was stored about its item, so that no alias or
+    /// hotkey is left pointing at nothing.
     public func delete(_ id: UUID) async throws {
         let itemID = ItemID.snippet(id).rawValue
         try await database.write("snippets.delete") { db in
             try db.execute(sql: "DELETE FROM snippet WHERE id = ?", arguments: [id.uuidString])
             try db.execute(sql: "DELETE FROM alias WHERE item_id = ?", arguments: [itemID])
             try db.execute(sql: "DELETE FROM item_override WHERE item_id = ?", arguments: [itemID])
+            try db.execute(sql: "DELETE FROM command_hotkey WHERE item_id = ?", arguments: [itemID])
         }
     }
 

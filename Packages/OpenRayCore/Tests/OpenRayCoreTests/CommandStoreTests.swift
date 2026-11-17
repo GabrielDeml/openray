@@ -176,6 +176,22 @@ import Testing
         #expect(overrides.fallbackOrder == [safari])
     }
 
+    @Test func deletingAQuicklinkTakesItsHotKeyWithIt() async throws {
+        let database = try AppDatabase.inMemory()
+        let store = CommandStore(database: database)
+        let hotKeyStore = CommandHotKeyStore(database: database)
+        let quicklink = wiki()
+        let controlOptionW = HotKey(keyCode: 0x0D, modifiers: [.control, .option])
+        let controlOptionS = HotKey(keyCode: 0x01, modifiers: [.control, .option])
+        try await store.saveQuicklink(quicklink)
+        try await hotKeyStore.set(controlOptionW, for: quicklink.itemID)
+        try await hotKeyStore.set(controlOptionS, for: safari)
+
+        try await store.deleteQuicklink(quicklink.id)
+
+        #expect(try await hotKeyStore.all() == [safari: controlOptionS])
+    }
+
     // MARK: Fallback order
 
     @Test func fallbackOrderIsChangedFromWhatIsStored() async throws {

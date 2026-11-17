@@ -244,6 +244,35 @@ import Testing
         #expect(registry.items.map(\.title) == ["Safari", "Sleep"])
     }
 
+    // The search session has `onChange`. The hotkeys of commands hear of the same snapshots
+    // through `onPublish`, at a moment when the items and the overrides belong together.
+    @Test func everyPublishedSnapshotIsAnnouncedToTheListenerOutsideSearchToo() async throws {
+        let store = CommandStore(database: try AppDatabase.inMemory())
+        let safari = ItemID.app(bundleID: "com.apple.Safari")
+        let apps = ManualSource("apps")
+        let registry = CommandRegistry(sources: [apps], commands: store)
+        let changes = changes(of: registry)
+        var publishedTitles: [[String]] = []
+        var safariWasDisabled: [Bool] = []
+        registry.onPublish = { [weak registry] in
+            if let registry {
+                publishedTitles.append(registry.items.map(\.title))
+                safariWasDisabled.append(registry.overrides.isDisabled(safari))
+            }
+        }
+
+        apps.yield([app("Safari", id: "com.apple.Safari")])
+        await wait(for: ["Safari"], in: registry, changes: changes)
+        apps.yield([app("Safari", id: "com.apple.Safari"), app("Notes", id: "com.apple.Notes")])
+        await wait(for: ["Safari", "Notes"], in: registry, changes: changes)
+        try await store.updateOverride(for: safari) { override in override.disabled = true }
+        await wait(for: ["Notes"], in: registry, changes: changes)
+
+        #expect(
+            publishedTitles == [["Safari"], ["Safari", "Notes"], ["Safari", "Notes"]])
+        #expect(safariWasDisabled == [false, false, true])
+    }
+
     @Test func registryThatGoesAwayStopsListeningToItsSources() async {
         let apps = ManualSource("apps")
 

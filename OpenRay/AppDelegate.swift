@@ -25,6 +25,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var launcher: LauncherController?
     private var settings: SettingsWindowController?
     private var commandsSettings: CommandsSettingsModel?
+    private var commandHotKeys: CommandHotKeys?
+    private var commandHotKeyRunner: CommandHotKeyRunner?
     /// Only while the onboarding window is open.
     private var onboarding: OnboardingWindowController?
     private var onboardingModel: OnboardingModel?
@@ -81,7 +83,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         #endif
 
-        hotKeys.onPress = { [unowned self] _, eventTime in hotKeyPressed(at: eventTime) }
+        hotKeys.onPress = { [unowned self] slot, eventTime in
+            switch slot {
+            case .launcher:
+                hotKeyPressed(at: eventTime)
+            case .command(let id):
+                commandHotKeyPressed(for: id)
+            }
+        }
         launcherHotKey.registerAtLaunch()
 
         // The one place the updater is started. The onboarding window opens further down,
@@ -110,6 +119,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func compose(with storage: Storage) {
         let commands = CommandStore(database: storage.database)
+        let commandHotKeys = CommandHotKeys(
+            store: CommandHotKeyStore(database: storage.database), registrar: hotKeys,
+            preferences: preferences,
+            showSettings: { [weak self] item in self?.showHotKeySettings(for: item) })
         let permissions = PermissionCenter()
         let workspace = WorkspaceActions()
         let hud = HUDController()
@@ -143,6 +156,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             sources.append(contentsOf: feature.makeSources(env))
         }
         let registry = CommandRegistry(sources: sources, commands: commands)
+        // Set before the registry can publish, which it does not do within this method. The
+        // hotkeys of commands follow the items from the first snapshot on.
+        registry.onPublish = { [weak registry, weak commandHotKeys] in
+            guard let registry, let commandHotKeys else { return }
+            commandHotKeys.update(items: registry.items, overrides: registry.overrides)
+        }
         let search = SearchSession(registry: registry, usage: storage.usage, now: { Date() })
         let pasteService = PasteService(
             host: pasteHost, permissions: permissions, preferences: preferences)
@@ -158,17 +177,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             search: search, usage: storage.usage,
             screenRegistry: ScreenRegistry(features: features, env: env),
             permissions: permissions, hud: hud, pasteService: pasteService,
-            tabFallback: tabFallback)
+            commandHotKeys: commandHotKeys, tabFallback: tabFallback)
         let launcher = LauncherController(model: model, focusRestorer: focusRestorer)
         launcher.onOpenSettings = { [unowned self] in showSettings() }
         pasteHost.launcher = launcher
+
+        let commandHotKeyRunner = CommandHotKeyRunner(host: launcher, permissions: permissions)
+        // A recorder releases the hotkeys of commands too, so they hear of it.
+        launcherHotKey.commandHotKeys = commandHotKeys
+        Task { await commandHotKeys.load() }
 
         let commandsSettings = CommandsSettingsModel(
             commands: commands, currentItems: currentItems)
         let permissionList = PermissionListModel(checker: permissions, currentItems: currentItems)
         var panes: [SettingsPane] = [
             .general(hotKey: launcherHotKey, loginItem: loginItem, permissions: permissionList),
-            .commands(model: commandsSettings),
+            .commands(
+                model: commandsSettings, commandHotKeys: commandHotKeys,
+                launcherHotKey: launcherHotKey),
             .about(),
         ]
         for feature in features {
@@ -182,6 +208,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.registry = registry
         self.launcher = launcher
         self.commandsSettings = commandsSettings
+        self.commandHotKeys = commandHotKeys
+        self.commandHotKeyRunner = commandHotKeyRunner
         settings = SettingsWindowController(panes: panes, focusRestorer: focusRestorer)
 
         if let notice = storage.notice {
@@ -230,6 +258,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         showSettings(pane: SettingsPane.commandsID)
     }
 
+    /// "Set Hotkey…" in the launcher: Settings › Commands, on that item.
+    private func showHotKeySettings(for item: ItemID) {
+        commandsSettings?.show(item)
+        showSettings(pane: SettingsPane.commandsID)
+    }
+
     private func showOnboarding() {
         let model = OnboardingModel(
             preferences: preferences, loginItem: loginItem, updates: updates)
@@ -246,6 +280,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // and does not open the launcher.
         if let onboardingModel, onboardingModel.hotKeyPressed() { return }
         launcher?.hotKeyPressed(at: eventTime)
+    }
+
+    /// Runs the item as Return on it in root search would. Onboarding is not asked: only the
+    /// launcher's hotkey is the answer to its "try your hotkey" step.
+    private func commandHotKeyPressed(for id: ItemID) {
+        // Both are nil in the moment before the database is open. No hotkey of a command is
+        // registered that early, so there is nothing to lose.
+        guard let commandHotKeys, let commandHotKeyRunner else { return }
+        // A press can still be on its way when its item goes or is disabled.
+        guard let item = commandHotKeys.item(pressedFor: id) else { return }
+        Task { await commandHotKeyRunner.press(item) }
     }
 
     @objc private func didWake() {
