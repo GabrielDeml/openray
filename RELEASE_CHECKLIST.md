@@ -137,7 +137,7 @@ In this order. Later steps need what earlier ones make.
 
 ### Get CI green
 
-`.github/workflows/ci.yml` has passed for milestones 1 to 8, clipboard
+`.github/workflows/ci.yml` has passed for milestones 1 to 9, clipboard
 history apart, and all of that is on `main`. The runner had Xcode 26.6
 with Swift 6.3.3, older than what everything was written with.
 Two runs before that stopped in "Test core package", both on the same test:
@@ -161,6 +161,8 @@ calls. The newer compiler accepts both.
   included, and no test ran into its time limit. The runner's SDK has
   `posix_spawn_file_actions_addchdir` and `SF_DATALESS`, which
   `PosixScriptRunner.swift` and `ScriptSecurity.swift` use.
+- [x] A green run with command hotkeys. Nothing in them was new to the
+  runner's compiler.
 - [ ] `shellcheck Scripts/*.sh` and `actionlint` once. Neither was installed
   where the scripts and the workflows were written; they were only parsed
   (`bash -n`, and as YAML).
@@ -485,9 +487,11 @@ permission.
   anything out. Is the wider window right, or should the row get another
   shape and the window go back to 660 (design §4.3.5)? Look at the other
   panes at the new width too: does any of them look stretched?
-- [ ] Recording. Click a row's hotkey field: the first click starts
-  recording. (The field is a custom view inside a list row; if the first
-  click only selects the row, that needs fixing.) Type ⌃⌥←: the field
+- [ ] Recording. Click on the text of a row's hotkey field ("Record
+  Hotkey"): the first click starts recording. (The field is a custom view
+  inside a list row, and the list keeps a click on a text for itself unless
+  the field claims it, which it now does; nobody has clicked it yet.) Click
+  its rim too. Type ⌃⌥←: the field
   shows it and the × appears. The field's tooltip shows on hover. Tab from
   the filter reaches the field, and Space or Return starts recording there.
   Esc while recording leaves the hotkey as it was. A chord without ⌘, ⌃ or
@@ -582,7 +586,9 @@ permission.
   command. Clear it in Settings › Commands first.", and the launcher keeps
   its hotkey. The same while that command is switched off, and while its
   hotkey is not working because another app has the chord. Leave the
-  Commands pane and come back: the messages under the rows are gone.
+  Commands pane and come back: the messages about refused chords are gone.
+  Record a refused chord again, close Settings with the Commands pane
+  showing and open it again: that message is gone too.
 - [ ] A chord another app holds [2]. Give a command a chord that a running
   app has registered as a global shortcut: the row says "… is in use by
   another app." and the command keeps the hotkey it had. Then the other
@@ -643,7 +649,10 @@ permission.
   second action: is that in the way (design §4.2.2)?
 - [ ] Onboarding. On the step that asks you to press your hotkey, a
   command's hotkey runs its command and does not pass the step; the
-  launcher's passes it.
+  launcher's passes it. On the step that chooses the hotkey, record a
+  chord that a command has: the step says that it is the hotkey of a
+  command and to clear it in Settings › Commands, not that another app may
+  be using it, and the launcher keeps its hotkey.
 - [ ] Settings › Window Management: its last sentence now says that a
   command can be given a hotkey. Does it read right beside the others?
 - [ ] VoiceOver: a launcher row with a hotkey ("Hotkey ⌃⌥←": are the

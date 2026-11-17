@@ -99,7 +99,7 @@ struct GeneralSettingsView: View {
             return HotKeyFormatter.rejectedMessage(chord: chord, status: status)
         case .heldBySlot:
             // The launcher is the only slot this pane records for, so the holder is a command.
-            return "\(chord) is the hotkey of a command. Clear it in Settings › Commands first."
+            return HotKeyFormatter.heldByCommandMessage(chord: chord)
         }
     }
 

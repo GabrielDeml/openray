@@ -2,7 +2,8 @@ import Foundation
 
 /// How a running action talks to the launcher shell.
 @MainActor public protocol ActionContext: AnyObject {
-    /// The app that was frontmost when the launcher opened.
+    /// The app that was frontmost when the launcher opened or, for an action that a command's
+    /// hotkey started, when the hotkey was pressed.
     var previousApp: AppRef? { get }
     /// The current frame's query.
     var query: String { get }

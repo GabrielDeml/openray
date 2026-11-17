@@ -42,6 +42,7 @@ import os
 
     /// The items the registry last published, by ID. Empty until the first `update`.
     private var itemsByID: [ItemID: SearchItem] = [:]
+    private var hasReceivedItems = false
     private var overrides = CommandOverrides()
     /// The chord each command's slot is registered with.
     private var registered: [ItemID: HotKey] = [:]
@@ -90,6 +91,7 @@ import os
         }
         self.itemsByID = itemsByID
         self.overrides = overrides
+        hasReceivedItems = true
         synchronizeRegistrations()
     }
 
@@ -113,9 +115,13 @@ import os
     /// have yielded, disabled or not. The launcher's recorder asks before it takes a chord,
     /// because a hotkey that is stored and not registered at the moment is unknown to the
     /// registrar. An item that is gone does not hold its chord.
+    ///
+    /// Until the registry has published for the first time no item is known, and that is not
+    /// the same as gone: every stored hotkey holds its chord then. The General pane can be on
+    /// screen that early, when the launcher's own hotkey failed at launch.
     public func holder(of key: HotKey) -> ItemID? {
         guard let id = itemAssigned(key) else { return nil }
-        if itemsByID[id] == nil { return nil }
+        if hasReceivedItems && itemsByID[id] == nil { return nil }
         return id
     }
 
@@ -214,8 +220,9 @@ import os
         await write { try await self.store.remove(id) }
     }
 
-    /// Forgets every refusal. The Commands pane calls this when it appears, so that it does
-    /// not open on what went wrong the last time it was used.
+    /// Forgets every refusal. The Commands pane calls this when it appears, and the app when
+    /// the settings window opens, so that the pane does not open on what went wrong the last
+    /// time it was used.
     public func clearRefusals() {
         refusals = [:]
     }

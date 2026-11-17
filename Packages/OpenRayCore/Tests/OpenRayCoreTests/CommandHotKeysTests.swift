@@ -542,6 +542,23 @@ import Testing
         #expect(hotKeys.holder(of: controlOptionSpace) == nil)
     }
 
+    // The General pane can be up before the sources have yielded anything, when the
+    // launcher's own hotkey failed at launch. No item is known then, which is not the same as
+    // every item being gone.
+    @Test func storedChordIsHeldUntilTheFirstItemsShowThatItsItemIsGone() async throws {
+        try await store.set(controlOptionS, for: safari)
+        try await store.set(commandF5, for: sleep)
+
+        await hotKeys.load()
+        #expect(registrar.hotKeys.isEmpty)
+        #expect(hotKeys.holder(of: controlOptionS) == safari)
+        #expect(hotKeys.holder(of: commandF5) == sleep)
+
+        hotKeys.update(items: [safariItem], overrides: CommandOverrides())
+        #expect(hotKeys.holder(of: controlOptionS) == safari)
+        #expect(hotKeys.holder(of: commandF5) == nil)
+    }
+
     @Test func settingsActionClosesTheLauncherAndOpensSettingsOnTheItem() async throws {
         await launch(with: [safariItem])
         let action = try #require(hotKeys.settingsAction(for: safari))

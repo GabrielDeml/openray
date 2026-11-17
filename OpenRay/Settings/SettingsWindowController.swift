@@ -51,6 +51,10 @@ class ActivatingWindowController: NSWindowController, NSWindowDelegate {
 /// The settings window. Hand-built rather than a SwiftUI `Settings` scene, which AppKit code
 /// cannot open and which does not activate an accessory app.
 final class SettingsWindowController: ActivatingWindowController {
+    /// Called before the window comes on screen after it was closed. A pane's `onAppear` does
+    /// not run again then, because the window keeps its views while it is closed.
+    var onOpen: (() -> Void)?
+
     private let navigation: SettingsNavigation
 
     init(panes: [SettingsPane], focusRestorer: FocusRestorer) {
@@ -71,6 +75,10 @@ final class SettingsWindowController: ActivatingWindowController {
     func show(pane: SettingsPane.ID? = nil) {
         if let pane {
             navigation.selection = pane
+        }
+        let isOnScreen = window?.isVisible == true
+        if !isOnScreen {
+            onOpen?()
         }
         showAndActivate()
     }
