@@ -14,10 +14,11 @@ OPENRAY_BUNDLE_IDENTIFIER = io.github.gabrieldeml.openray
 // apart, which would otherwise start a comment.
 SPARKLE_FEED_URL = https:/$()/gabrieldeml.github.io/openray/appcast.xml
 
-// The public EdDSA key that updates are checked against. It stays empty until the owner has run
-// Sparkle's generate_keys (RELEASE_CHECKLIST.md), and the updater is not started while it is
-// empty. The key is Base64: should it contain "//", write that as "/$()/" as in the URL above.
-SPARKLE_PUBLIC_ED_KEY =
+// The public EdDSA key that updates are checked against, made with Sparkle's generate_keys
+// (RELEASE_CHECKLIST.md). The private half is in the owner's login keychain and in the secret
+// SPARKLE_ED_PRIVATE_KEY. The key is Base64: should it contain "//", write that as "/$()/" as in
+// the URL above.
+SPARKLE_PUBLIC_ED_KEY = JKZuHfsuXCheuLhPc5VOY0zvSzxKowx+7tGfe8GoxBY=
 
 
 // Version. These are the values of a local build: the release job sets both, from the tag and
