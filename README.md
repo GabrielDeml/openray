@@ -56,20 +56,16 @@ what it stores.
 
 OpenRay needs macOS 26 or later.
 
-Releases start with v0.1.0. Once it is on the
-[Releases page](https://github.com/GabrielDeml/openray/releases), install
-OpenRay with Homebrew:
+Install OpenRay with Homebrew:
 
 ```bash
 brew install gabrieldeml/openray/openray
 ```
 
-or download `OpenRay-<version>.zip` from that page, unzip it and move OpenRay
-to your Applications folder. Either way it then keeps itself up to date, if
-you let it.
-
-While the Releases page is empty there is nothing to install, and the way to
-get OpenRay is to build it.
+or download `OpenRay-<version>.zip` from the
+[Releases page](https://github.com/GabrielDeml/openray/releases), unzip it and
+move OpenRay to your Applications folder. Either way it then keeps itself up
+to date, if you let it.
 
 ## Build and run
 

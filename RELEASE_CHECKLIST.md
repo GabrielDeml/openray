@@ -43,7 +43,7 @@ be changed once a release has shipped: installed copies keep asking the old
 feed, and macOS keeps permissions, preferences and the Keychain item under the
 old identifier.
 
-- [ ] **Feed URL** (design §8, item 21). Default:
+- [x] **Feed URL** (design §8, item 21). Default:
   `https://gabrieldeml.github.io/openray/appcast.xml`, on GitHub Pages. Buy a
   domain first if the feed should ever be able to move away from GitHub.
   Change it in `SPARKLE_FEED_URL` in
@@ -54,28 +54,28 @@ old identifier.
   "OpenRay downloads its list of releases from GitHub" (`whatACheckSends` in
   `OpenRay/Settings/UpdatesSettingsView.swift`) and the Updates section of
   [PRIVACY.md](PRIVACY.md) have to change with it.
-- [ ] **Bundle identifier** (item 22). Default:
+- [x] **Bundle identifier** (item 22). Default:
   `io.github.gabrieldeml.openray`. Change it in `OPENRAY_BUNDLE_IDENTIFIER` in
   `Config/Shared.xcconfig` and in the three `zap` paths of the cask. The
   release job compares the first of them with the app. `CONTRIBUTING.md`,
   `PRIVACY.md` and the design name the identifier in examples.
-- [ ] **Intel** (item 23). Default: a universal build, `arm64` and `x86_64`,
+- [x] **Intel** (item 23). Default: a universal build, `arm64` and `x86_64`,
   because macOS 26 still runs on Intel Macs. To ship Apple silicon only, add
   `ARCHS = arm64` to [Config/Release.xcconfig](Config/Release.xcconfig) and
   `depends_on arch: :arm64` to the cask.
-- [ ] **Installing updates without asking** (item 24). Default: off. A user
+- [x] **Installing updates without asking** (item 24). Default: off. A user
   can turn it on in Settings › Updates. The default is `SUAutomaticallyUpdate`
   in [Config/Info.plist](Config/Info.plist).
-- [ ] **The tap's name.** Default: `GabrielDeml/homebrew-openray`, which makes
+- [x] **The tap's name.** Default: `GabrielDeml/homebrew-openray`, which makes
   the install command `brew install gabrieldeml/openray/openray`. It is
   `TAP_REPOSITORY` in `release.yml` and is repeated in the comment at the top
   of the cask, in `README.md` and in `CHANGELOG.md`.
-- [ ] **The links that name the GitHub account.** `AboutLinks.repository` in
+- [x] **The links that name the GitHub account.** `AboutLinks.repository` in
   `OpenRay/Settings/AboutSettingsView.swift` and `url` and `homepage` in the
   cask all say `https://github.com/GabrielDeml/openray`. They are right as
   long as the repository stays where it is. The release job checks the cask's
   `url` against the repository it runs in.
-- [ ] **What the first release carries.** `CHANGELOG.md` has window
+- [x] **What the first release carries.** `CHANGELOG.md` has window
   management, Lock Screen, snippets, file search, script commands and
   hotkeys for commands under Unreleased, beside everything of v0.1. The
   roadmap has each feature of milestone 7 ship as a release of its own, and
@@ -83,7 +83,7 @@ old identifier.
   six entries to the versions they ship in, or leave them where they are if
   v0.1 is to have them. The status paragraph of `README.md` names all six as
   well, and `README.md` has a section on writing a script command.
-- [ ] **The snippet table** (item 33). The first release that has snippets
+- [x] **The snippet table** (item 33). The first release that has snippets
   fixes it, because an installed copy runs the migration `m7_snippets` once
   and never again. Default: an integer key, `row_id`, that the search index
   hangs on, and the snippet's UUID in a `UNIQUE` column beside it (design
@@ -96,7 +96,7 @@ old identifier.
   stored under (`snippet:<uuid>`, `file:<path>`,
   `command:files.openWith.<app path>`) and the shape of the `files.scope`
   preference (design §4.2.1, §4.3.4).
-- [ ] **Script commands: what their first release fixes** (item 34). People
+- [x] **Script commands: what their first release fixes** (item 34). People
   will write scripts for it, and those have to keep working. Fixed from then
   on: the header (`@openray.schemaVersion 1`; the keys `title`, `mode` with
   `silent` and `fullOutput`, `icon`, `description`, `keywords`, `argument1`
@@ -112,7 +112,7 @@ old identifier.
   `scripts.folders` preference, a list of the added folders as absolute
   paths (design §4.10, §4.3.4). To change any of it, do so before that
   release, in `Packages/OpenRayCore/Sources/OpenRayCore/Scripts`.
-- [ ] **The hotkey table** (item 35). The first release that has command
+- [x] **The hotkey table** (item 35). The first release that has command
   hotkeys fixes it, because an installed copy runs the migration
   `m9_command_hotkeys` once and never again. Default: a table
   `command_hotkey` with the item's ID as its key, the key code and the
@@ -134,6 +134,17 @@ old identifier.
 ## 2. One-time setup
 
 In this order. Later steps need what earlier ones make.
+
+Done on 2026-11-24, apart from the linters and the backup of the update key.
+What expires, and when:
+
+- The Developer ID Application certificate in `DEVELOPER_ID_P12_BASE64`
+  expires on 2027-12-24. The `.p12` carries Apple's Developer ID G2
+  intermediate beside it, for the first point under "The first release".
+- `HOMEBREW_TAP_TOKEN`, the token "openray release: homebrew tap", expires on
+  2027-02-22.
+- The notary key, P6NRM6KTMM ("OpenRay release notarization"), does not
+  expire.
 
 ### Get CI green
 
@@ -169,16 +180,16 @@ calls. The newer compiler accepts both.
 
 ### Apple
 
-- [ ] Join the Apple Developer Program. It is paid, and notarisation needs it
+- [x] Join the Apple Developer Program. It is paid, and notarisation needs it
   (design §8, item 27).
-- [ ] Create a **Developer ID Application** certificate: Xcode › Settings ›
+- [x] Create a **Developer ID Application** certificate: Xcode › Settings ›
   Accounts › Manage Certificates › + › Developer ID Application, as the
   Account Holder.
-- [ ] Export it from Keychain Access (My Certificates, the certificate
+- [x] Export it from Keychain Access (My Certificates, the certificate
   together with its private key) as a `.p12` with a password of its own. The
   release job reads the team ID off this certificate, so there is no secret
   for the team.
-- [ ] Create an App Store Connect API key for notarising: App Store Connect ›
+- [x] Create an App Store Connect API key for notarising: App Store Connect ›
   Users and Access › Integrations › App Store Connect API. A **Team key** with
   the Developer role is what the job expects. Note its Key ID and the Issuer
   ID at the top of that page, and download the `.p8` file, which Apple offers
@@ -196,7 +207,7 @@ that it was made without the key, and the release job stops at "Check what the
 release needs" before anything is signed. Nobody but you can fill it in:
 `generate_keys` writes the private key into your login keychain.
 
-- [ ] Get Sparkle's tools from the release the app links, 2.10.1, and check
+- [x] Get Sparkle's tools from the release the app links, 2.10.1, and check
   the tarball before running anything from it. The hash is the one in
   `release.yml`:
 
@@ -206,16 +217,16 @@ release needs" before anything is signed. Nobody but you can fill it in:
   mkdir sparkle-tools && tar -xf Sparkle-2.10.1.tar.xz -C sparkle-tools
   ```
 
-- [ ] Run `sparkle-tools/bin/generate_keys`. It makes the key pair, keeps the
+- [x] Run `sparkle-tools/bin/generate_keys`. It makes the key pair, keeps the
   private key in your login keychain and prints the public key.
-- [ ] Put the public key after `SPARKLE_PUBLIC_ED_KEY =` in
+- [x] Put the public key after `SPARKLE_PUBLIC_ED_KEY =` in
   `Config/Shared.xcconfig`, without quotes, and commit it. The key is Base64
   and `//` starts a comment in an xcconfig file: if the key contains `//`,
   write that as `/$()/`, as in the feed URL above it. From this commit on, a
   Release build that anyone makes from a clone starts the updater.
   `CONTRIBUTING.md` has the line for `Config/Local.xcconfig` that keeps such
   a build from updating itself; a Debug build never does.
-- [ ] Check that the app got the whole key. Build Release and compare:
+- [x] Check that the app got the whole key. Build Release and compare:
 
   ```bash
   xcodebuild -project OpenRay.xcodeproj -scheme OpenRay -configuration Release \
@@ -239,16 +250,16 @@ release needs" before anything is signed. Nobody but you can fill it in:
 
 ### GitHub
 
-- [ ] Make `GabrielDeml/openray` public, if it is not yet. On a free plan a
+- [x] Make `GabrielDeml/openray` public, if it is not yet. On a free plan a
   private repository gets neither required reviewers for an environment nor
   Pages, and the cask downloads the zip without a login, so
   `brew install` would get a 404 from a private one.
-- [ ] Create the environment **`release`**: Settings › Environments › New
+- [x] Create the environment **`release`**: Settings › Environments › New
   environment. Add yourself under Required reviewers and leave "Prevent
   self-review" off, or nobody can approve. Do this before the first tag: a
   workflow that names an environment which does not exist creates it without
   any protection.
-- [ ] Add the secrets to that environment (Environment secrets, not
+- [x] Add the secrets to that environment (Environment secrets, not
   repository secrets, so that only an approved release job can read them).
   The names are exactly these:
 
@@ -264,9 +275,9 @@ release needs" before anything is signed. Nobody but you can fill it in:
 
   `gh secret set <name> --env release` reads a value from standard input, if
   you would rather keep the values off the clipboard.
-- [ ] Leave immutable releases off for the repository. A release job that is
+- [x] Leave immutable releases off for the repository. A release job that is
   run a second time replaces the zip of the release it made the first time.
-- [ ] Create the `gh-pages` branch, with nothing on it but a `.nojekyll`
+- [x] Create the `gh-pages` branch, with nothing on it but a `.nojekyll`
   file, which tells Pages to serve the files as they are:
 
   ```bash
@@ -282,23 +293,23 @@ release needs" before anything is signed. Nobody but you can fill it in:
   git branch -D gh-pages
   ```
 
-- [ ] Settings › Pages: deploy from a branch, `gh-pages`, folder `/ (root)`.
+- [x] Settings › Pages: deploy from a branch, `gh-pages`, folder `/ (root)`.
   The feed URL answers 404 until the first release has published the appcast,
   which is fine: no installed copy asks before then.
-- [ ] If `gh-pages` gets a branch protection rule, it has to let the release
+- [x] If `gh-pages` gets a branch protection rule, it has to let the release
   job push to it.
 
 ### Homebrew
 
-- [ ] Create the public repository `GabrielDeml/homebrew-openray` with a
+- [x] Create the public repository `GabrielDeml/homebrew-openray` with a
   README, so that it has a first commit and a default branch. The release job
   makes the `Casks` folder and puts the cask in it.
-- [ ] Create a fine-grained personal access token: your account's Settings ›
+- [x] Create a fine-grained personal access token: your account's Settings ›
   Developer settings › Personal access tokens › Fine-grained tokens.
   Repository access: only
   `homebrew-openray`. Permissions: Contents, read and write. Nothing else.
   It goes into the secret `HOMEBREW_TAP_TOKEN`.
-- [ ] Note when the token expires. With an expired token the last step of a
+- [x] Note when the token expires. With an expired token the last step of a
   release fails after the release itself is out. Make a new token, replace
   the secret, and update the tap by hand for that release ("When a step
   fails", below).
