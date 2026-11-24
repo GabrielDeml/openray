@@ -573,6 +573,7 @@ import Testing
     /// A host for the tests that are not about actions.
     @MainActor private final class IdleHost: AppActionHost {
         func openApp(at url: URL) async throws {}
+        func hideAppIfFrontmost(at url: URL) -> Bool { false }
         func showInFinder(_ url: URL) {}
         func quitApp(at url: URL) -> Bool { false }
         func showAliasSettings(for item: ItemID) {}
@@ -587,6 +588,7 @@ import Testing
         private(set) var events: [String] = []
         var openFails = false
         var appIsRunning = true
+        var appIsFrontmost = false
 
         /// The launcher has to be closed before a window opens outside the panel.
         private func record(_ event: String) {
@@ -597,6 +599,12 @@ import Testing
         func openApp(at url: URL) async throws {
             if openFails { throw LaunchFailure() }
             record("open \(url.lastPathComponent)")
+        }
+
+        func hideAppIfFrontmost(at url: URL) -> Bool {
+            guard appIsFrontmost else { return false }
+            record("hide \(url.lastPathComponent)")
+            return true
         }
 
         func showInFinder(_ url: URL) {
@@ -632,6 +640,38 @@ import Testing
 
         #expect(host.events == ["open Lantern.app, launcher closed"])
         #expect(outcome == .closeLauncher)
+    }
+
+    @MainActor @Test func hotKeyHidesTheAppWhenItIsInFront() async throws {
+        let host = RecordingHost()
+        host.appIsFrontmost = true
+        host.context.startedByHotKey = true
+        let open = try await lanternAction("open", host: host)
+
+        let outcome = try await open.perform(host.context)
+
+        #expect(host.events == ["hide Lantern.app, launcher closed"])
+        #expect(outcome == .closeLauncher)
+    }
+
+    @MainActor @Test func hotKeyOpensTheAppWhenAnotherAppIsInFront() async throws {
+        let host = RecordingHost()
+        host.context.startedByHotKey = true
+        let open = try await lanternAction("open", host: host)
+
+        _ = try await open.perform(host.context)
+
+        #expect(host.events == ["open Lantern.app, launcher closed"])
+    }
+
+    @MainActor @Test func returnInTheLauncherOpensTheAppEvenWhenItIsInFront() async throws {
+        let host = RecordingHost()
+        host.appIsFrontmost = true
+        let open = try await lanternAction("open", host: host)
+
+        _ = try await open.perform(host.context)
+
+        #expect(host.events == ["open Lantern.app, launcher closed"])
     }
 
     @MainActor @Test func openActionThrowsWhenTheAppCannotBeOpened() async throws {

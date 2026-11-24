@@ -16,17 +16,25 @@ final class WorkspaceActions: AppActionHost, QuicklinkOpening, FileActionHost, S
         _ = try await NSWorkspace.shared.openApplication(at: url, configuration: configuration)
     }
 
+    func hideAppIfFrontmost(at url: URL) -> Bool {
+        guard let frontmost = NSWorkspace.shared.frontmostApplication,
+            isRunning(frontmost, from: url),
+            // An app in front without a window, such as Safari after its last window was
+            // closed, is opened instead: that brings up a window, where hiding would show
+            // nothing at all.
+            hasWindowOnScreen(frontmost.processIdentifier)
+        else { return false }
+        return frontmost.hide()
+    }
+
     /// Also what `FileActionHost` asks for a found file and `ScriptActionHost` for a script.
     func showInFinder(_ url: URL) {
         NSWorkspace.shared.activateFileViewerSelecting([url])
     }
 
     func quitApp(at url: URL) -> Bool {
-        // The index knows an app by the path it was found under, which may be a symbolic link;
-        // a running app reports where its bundle really is.
-        let bundlePath = url.resolvingSymlinksInPath().path(percentEncoded: false)
         let runningCopies = NSWorkspace.shared.runningApplications.filter { app in
-            app.bundleURL?.resolvingSymlinksInPath().path(percentEncoded: false) == bundlePath
+            isRunning(app, from: url)
         }
         for app in runningCopies {
             app.terminate()
@@ -36,6 +44,30 @@ final class WorkspaceActions: AppActionHost, QuicklinkOpening, FileActionHost, S
 
     func showAliasSettings(for item: ItemID) {
         onShowAliasSettings?(item)
+    }
+
+    /// Whether `app` is a copy of the app the index found at `url`.
+    ///
+    /// The index knows an app by the path it was found under, which may be a symbolic link,
+    /// and an iPhone or iPad app by its wrapper. A running app reports where its own bundle
+    /// really is, which for an iPhone or iPad app is inside `Wrapper`.
+    private func isRunning(_ app: NSRunningApplication, from url: URL) -> Bool {
+        guard let bundleURL = app.bundleURL else { return false }
+        let indexed = url.resolvingSymlinksInPath().pathComponents
+        let running = bundleURL.resolvingSymlinksInPath().pathComponents
+        return running == indexed || running.dropLast() == indexed + ["Wrapper"]
+    }
+
+    /// Whether the process has a window in the current Space. Minimized windows do not count.
+    /// Reading only the owner and layer of a window needs no Screen Recording permission.
+    private func hasWindowOnScreen(_ pid: pid_t) -> Bool {
+        let options: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
+        let windows = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]]
+        return (windows ?? []).contains { window in
+            // Layer 0 holds the ordinary windows. Menus, the menu bar and panels sit above it.
+            window[kCGWindowOwnerPID as String] as? pid_t == pid
+                && window[kCGWindowLayer as String] as? Int == 0
+        }
     }
 
     // MARK: QuicklinkOpening

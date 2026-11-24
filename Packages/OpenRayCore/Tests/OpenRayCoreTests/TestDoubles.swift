@@ -17,6 +17,7 @@ import OpenRayCore
 
     var previousApp: AppRef?
     var query: String
+    var startedByHotKey = false
     /// What `confirm` answers.
     var confirmationAnswer = true
     /// Runs when `confirm` is asked, before it answers, for a test of what had happened by

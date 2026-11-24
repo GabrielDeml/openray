@@ -17,6 +17,7 @@ import OpenRayCore
         var ranActions: [String] = []
         var previousApp: AppRef?
         var query: String?
+        var startedByHotKey: Bool?
     }
 
     /// An item whose action the test can hold open.
@@ -304,6 +305,7 @@ import OpenRayCore
         let looking = ActionDescriptor(id: ActionID(rawValue: "run"), title: "Run") { context in
             runs.previousApp = context.previousApp
             runs.query = context.query
+            runs.startedByHotKey = context.startedByHotKey
             return .keepOpen
         }
 
@@ -311,6 +313,7 @@ import OpenRayCore
 
         #expect(runs.previousApp == textEdit)
         #expect(runs.query == "")
+        #expect(runs.startedByHotKey == true)
     }
 
     @Test func whatTheActionAsksOfItsContextReachesTheHostsContext() async throws {

@@ -136,6 +136,7 @@ import os
 
     var previousApp: AppRef? { hostContext.previousApp }
     var query: String { hostContext.query }
+    var startedByHotKey: Bool { true }
 
     func closeLauncher() {
         hostContext.closeLauncher()
