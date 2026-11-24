@@ -345,6 +345,11 @@ public final class AppIndexSource: SearchSource {
             // The launcher goes first (§4.1.6): an app that was not running can take seconds to
             // start, and its window must not come up behind the panel.
             context.closeLauncher()
+            // An app's hotkey toggles it: pressed while the app is in front, it hides the app.
+            // Return in the launcher only ever opens.
+            if context.startedByHotKey && host.hideAppIfFrontmost(at: url) {
+                return .closeLauncher
+            }
             try await host.openApp(at: url)
             return .closeLauncher
         }

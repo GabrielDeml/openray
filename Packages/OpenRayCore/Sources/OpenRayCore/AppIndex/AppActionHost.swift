@@ -5,6 +5,11 @@ import Foundation
 @MainActor public protocol AppActionHost: AnyObject, Sendable {
     /// Opens the app, or brings it to the front when it is already running.
     func openApp(at url: URL) async throws
+    /// Hides the app at `url` if it is the frontmost app and has a window on screen.
+    ///
+    /// - Returns: false when nothing was hidden: another app is in front, or this one has no
+    ///   window to hide.
+    func hideAppIfFrontmost(at url: URL) -> Bool
     func showInFinder(_ url: URL)
     /// Asks every running copy of the app at `url` to quit.
     ///

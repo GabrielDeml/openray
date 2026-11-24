@@ -7,6 +7,8 @@ import Foundation
     var previousApp: AppRef? { get }
     /// The current frame's query.
     var query: String { get }
+    /// Whether a command's hotkey started the action, and not the launcher.
+    var startedByHotKey: Bool { get }
     /// Call before opening any window outside the panel.
     func closeLauncher()
     /// Shows a transient message and leaves the launcher as it is.
@@ -18,6 +20,11 @@ import Foundation
     /// pasteboard, which macOS may answer with a privacy alert, so an action asks only when
     /// what it does needs the text, and closes the launcher first (§4.9).
     func clipboardText() async -> String?
+}
+
+extension ActionContext {
+    /// Only the context of a hotkey press says yes; every other context is the launcher's.
+    public var startedByHotKey: Bool { false }
 }
 
 public struct AppRef: Sendable, Hashable {
